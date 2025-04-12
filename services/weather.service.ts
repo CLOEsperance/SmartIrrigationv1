@@ -18,11 +18,20 @@ export interface HourlyWeatherData {
   temperature_2m: number[];         // Températures horaires en °C
   relative_humidity_2m: number[];   // Humidité relative horaire en %
   precipitation: number[];          // Précipitations horaires en mm
+  cloudcover: number[];             // Couverture nuageuse horaire en %
+  windspeed_10m: number[];          // Vitesse du vent horaire en km/h
+  winddirection_10m: number[];      // Direction du vent horaire en degrés
 }
 
 export interface WeatherResponse {
   current_weather: CurrentWeatherData;
   hourly: HourlyWeatherData;
+  daily: {
+    temperature_2m_max: number[];
+    temperature_2m_min: number[];
+    precipitation_sum: number[];
+    precipitation_probability_max: number[];
+  };
 }
 
 // Interface pour les données météo formatées
@@ -39,6 +48,16 @@ export interface FormattedWeatherData {
   locationName: string;             // Nom de la localisation
   weatherIcon: string;              // Icône représentant la météo actuelle
   backgroundGradient: string[];     // Couleurs du dégradé pour l'arrière-plan
+  isNight: boolean;                 // Indique si c'est la nuit
+  cloudCover: number;               // Couverture nuageuse actuelle en %
+  windSpeed: number;                // Vitesse du vent actuelle en km/h
+  windDirection: number;            // Direction du vent actuelle en degrés
+  dailyForecast: {
+    maxTemperatures: number[];
+    minTemperatures: number[];
+    precipitationSum: number[];
+    precipitationProbability: number[];
+  };
 }
 
 /**
@@ -136,8 +155,8 @@ class WeatherService {
    */
   async getWeatherData(latitude: number, longitude: number): Promise<FormattedWeatherData> {
     try {
-      // Construire l'URL de l'API avec les paramètres
-      const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&hourly=temperature_2m,relative_humidity_2m,precipitation&timezone=auto`;
+      // Ajout de paramètres supplémentaires pour plus de précision
+      const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&hourly=temperature_2m,relative_humidity_2m,precipitation,weathercode,cloudcover,windspeed_10m,winddirection_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max&timezone=auto&forecast_days=10`;
       
       // Faire la requête à l'API
       const response = await fetch(apiUrl);
@@ -161,6 +180,9 @@ class WeatherService {
 
       const weatherCode = data.current_weather.weathercode;
       
+      // Déterminer si c'est le jour ou la nuit
+      const isNight = this.isNightTime();
+      
       // Formater les données
       const formattedData: FormattedWeatherData = {
         currentTemperature: data.current_weather.temperature,
@@ -174,7 +196,17 @@ class WeatherService {
         nextRainHours: nextRainHours,
         locationName: await this.getLocationName(latitude, longitude),
         weatherIcon: this.weatherIcons[weatherCode] || "cloud",
-        backgroundGradient: this.getBackgroundGradient(weatherCode)
+        backgroundGradient: isNight ? this.getNightGradient() : this.getDayGradient(weatherCode),
+        isNight: isNight,
+        cloudCover: data.hourly.cloudcover[currentHourIndex],
+        windSpeed: data.hourly.windspeed_10m[currentHourIndex],
+        windDirection: data.hourly.winddirection_10m[currentHourIndex],
+        dailyForecast: {
+          maxTemperatures: data.daily.temperature_2m_max,
+          minTemperatures: data.daily.temperature_2m_min,
+          precipitationSum: data.daily.precipitation_sum,
+          precipitationProbability: data.daily.precipitation_probability_max
+        }
       };
       
       return formattedData;
@@ -272,14 +304,20 @@ class WeatherService {
     }
   }
 
-  /**
-   * Récupère le dégradé de couleur en fonction du code météo
-   * @param weatherCode Code météo WMO
-   * @returns Tableau de couleurs pour le dégradé
-   */
-  private getBackgroundGradient(weatherCode: number): string[] {
-    // Utiliser le dégradé spécifique ou un dégradé par défaut
-    return this.weatherGradients[weatherCode] || ['#4A90E2', '#87CEEB'];
+  private isNightTime(): boolean {
+    const now = new Date();
+    const hours = now.getHours();
+    return hours >= 20 || hours < 6;
+  }
+
+  private getDayGradient(weatherCode: number): string[] {
+    // Gradient bleu ciel pour la journée
+    return ['#87CEEB', '#4A90E2'];
+  }
+
+  private getNightGradient(): string[] {
+    // Gradient nuit étoilée
+    return ['#1a1b4b', '#090a2a'];
   }
 }
 

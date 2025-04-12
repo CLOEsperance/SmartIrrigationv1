@@ -231,23 +231,37 @@ export default function HomeScreen() {
 
     if (!weatherData) return null;
 
+    // Ensure we always have at least two colors for the gradient
+    const gradientColors = Array.isArray(weatherData.backgroundGradient) && weatherData.backgroundGradient.length >= 2
+      ? weatherData.backgroundGradient
+      : ['#4880EC', '#019CAD'];
+
     return (
       <View style={styles.weatherSection}>
+        <Text style={styles.weatherSectionTitle}>Météo du jour</Text>
         <LinearGradient
-          colors={weatherData.backgroundGradient}
+          colors={gradientColors as [string, string, ...string[]]}
           style={styles.weatherGradient}
         >
+          {weatherData.isNight && (
+            <Image
+              source={require('../../assets/images/stars.png.png')}
+              style={styles.starsOverlay}
+            />
+          )}
           <View style={styles.weatherHeader}>
             <Text style={styles.weatherTitle}>Météo</Text>
             <Text style={styles.weatherLocation}>{weatherData.locationName}</Text>
           </View>
           
           <View style={styles.weatherMain}>
-            <Ionicons 
-              name={weatherData.weatherIcon as any} 
-              size={72} 
-              color={Colors.white} 
-            />
+            <View style={styles.weatherIconContainer}>
+              <FontAwesome5 
+                name={getWeatherIcon(weatherData.currentWeatherCode)}
+                size={72}
+                color={getWeatherIconColor(weatherData.currentWeatherCode)}
+              />
+            </View>
             <View style={styles.weatherMainInfo}>
               <Text style={styles.weatherTemp}>
                 {Math.round(weatherData.currentTemperature)}°C
@@ -260,19 +274,40 @@ export default function HomeScreen() {
 
           <View style={styles.weatherGrid}>
             <View style={styles.weatherItem}>
-              <FontAwesome5 name="temperature-high" size={20} color={Colors.white} />
+              <FontAwesome5 
+                name="temperature-high" 
+                size={20} 
+                color={Colors.white} 
+              />
               <Text style={styles.weatherValue}>{weatherData.currentTemperature}°C</Text>
               <Text style={styles.weatherLabel}>Température</Text>
             </View>
             <View style={styles.weatherItem}>
-              <Ionicons name="water" size={20} color={Colors.white} />
+              <FontAwesome5 
+                name="tint" 
+                size={20} 
+                color="#4FC3F7" 
+              />
               <Text style={styles.weatherValue}>{weatherData.currentHumidity}%</Text>
               <Text style={styles.weatherLabel}>Humidité</Text>
             </View>
             <View style={styles.weatherItem}>
-              <Ionicons name="rainy" size={20} color={Colors.white} />
+              <FontAwesome5 
+                name="cloud-rain" 
+                size={20} 
+                color="#81D4FA" 
+              />
               <Text style={styles.weatherValue}>{weatherData.hourlyPrecipitation[0] || 0}mm</Text>
               <Text style={styles.weatherLabel}>Précipitations</Text>
+            </View>
+            <View style={styles.weatherItem}>
+              <FontAwesome5 
+                name="wind" 
+                size={20} 
+                color="#B3E5FC" 
+              />
+              <Text style={styles.weatherValue}>{weatherData.windSpeed} km/h</Text>
+              <Text style={styles.weatherLabel}>Vent</Text>
             </View>
           </View>
 
@@ -287,7 +322,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity 
             style={styles.detailsButton}
-            onPress={() => setShowWeatherDetails(true)}
+            onPress={() => router.push('/weather-details' as any)}
           >
             <Text style={styles.detailsButtonText}>Voir les détails</Text>
             <Ionicons name="chevron-forward" size={20} color={Colors.white} />
@@ -839,4 +874,81 @@ const styles = StyleSheet.create({
     fontFamily: 'OpenSans-Bold',
     marginRight: 5,
   },
+  weatherSectionTitle: {
+    fontSize: 24,
+    fontFamily: 'Montserrat-Bold',
+    color: Colors.white,
+    marginBottom: 10,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: -1, height: 1 },
+    textShadowRadius: 10,
+  },
+  weatherIconContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 40,
+    padding: 15,
+    marginRight: 20,
+  },
+  starsOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.5,
+    resizeMode: 'cover',
+  },
 });
+
+// Fonction utilitaire pour obtenir l'icône météo appropriée
+const getWeatherIcon = (weatherCode: number): string => {
+  // Mapping des codes météo vers les icônes FontAwesome 5
+  const iconMap: { [key: number]: string } = {
+    0: 'sun',                // Ciel dégagé
+    1: 'cloud-sun',          // Principalement dégagé
+    2: 'cloud-sun',          // Partiellement nuageux
+    3: 'cloud',             // Couvert
+    45: 'smog',             // Brouillard
+    48: 'smog',             // Brouillard givrant
+    51: 'cloud-rain',       // Bruine légère
+    53: 'cloud-rain',       // Bruine modérée
+    55: 'cloud-showers-heavy', // Bruine dense
+    61: 'cloud-rain',       // Pluie légère
+    63: 'cloud-showers-heavy', // Pluie modérée
+    65: 'cloud-showers-heavy', // Pluie forte
+    71: 'snowflake',        // Neige légère
+    73: 'snowflake',        // Neige modérée
+    75: 'snowflake',        // Neige forte
+    95: 'bolt',             // Orage
+    96: 'cloud-bolt',       // Orage avec grêle légère
+    99: 'cloud-bolt',       // Orage avec grêle forte
+  };
+  return iconMap[weatherCode] || 'cloud';
+};
+
+// Fonction utilitaire pour obtenir la couleur de l'icône météo
+const getWeatherIconColor = (weatherCode: number): string => {
+  // Mapping des codes météo vers les couleurs
+  const colorMap: { [key: number]: string } = {
+    0: '#FFD700',           // Jaune doré pour le soleil
+    1: '#FFA500',           // Orange pour soleil partiellement couvert
+    2: '#87CEEB',           // Bleu ciel pour nuages légers
+    3: '#B8C3CB',           // Gris pour couvert
+    45: '#CFD8DC',          // Gris clair pour brouillard
+    48: '#CFD8DC',          // Gris clair pour brouillard givrant
+    51: '#4FC3F7',          // Bleu clair pour bruine
+    53: '#4FC3F7',          // Bleu clair pour bruine
+    55: '#2196F3',          // Bleu pour pluie
+    61: '#2196F3',          // Bleu pour pluie
+    63: '#1976D2',          // Bleu foncé pour pluie forte
+    65: '#1565C0',          // Bleu très foncé pour pluie très forte
+    71: '#B3E5FC',          // Bleu très clair pour neige
+    73: '#B3E5FC',          // Bleu très clair pour neige
+    75: '#B3E5FC',          // Bleu très clair pour neige
+    95: '#FFA000',          // Orange pour orage
+    96: '#FF8F00',          // Orange foncé pour orage avec grêle
+    99: '#FF6F00',          // Orange très foncé pour orage violent
+  };
+  return colorMap[weatherCode] || '#87CEEB';
+};
