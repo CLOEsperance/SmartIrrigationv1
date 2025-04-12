@@ -10,15 +10,18 @@ import {
   Image,
   Dimensions,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import Colors from '../../constants/Colors';
 import weatherService, { FormattedWeatherData } from '../../services/weather.service';
+import { auth } from '../../firebaseConfig';
+import userService from '../../services/user.service';
 
-// Coordonnées simulées pour Cotonou, Bénin
-const BENIN_COORDS = {
+// Coordonnées par défaut pour Cotonou, Bénin (utilisées uniquement si l'utilisateur n'a pas de localisation)
+const DEFAULT_COORDS = {
   latitude: 6.36,
   longitude: 2.42,
 };
@@ -31,18 +34,49 @@ export default function WeatherScreen() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [userLocation, setUserLocation] = useState<{latitude: number, longitude: number, region?: string} | null>(null);
+  const [locationName, setLocationName] = useState<string>("Localisation...");
+
+  // Fonction pour charger la localisation de l'utilisateur depuis Firestore
+  const loadUserLocation = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        console.error('Aucun utilisateur connecté');
+        return null;
+      }
+
+      const userData = await userService.getUserData(user.uid);
+      if (userData && userData.location) {
+        setUserLocation(userData.location);
+        setLocationName(userData.location.region || "Votre localisation");
+        return userData.location;
+      } else {
+        console.warn('Aucune localisation trouvée pour l\'utilisateur');
+        setLocationName("Cotonou, Bénin (par défaut)");
+        return null;
+      }
+    } catch (err) {
+      console.error('Erreur lors du chargement de la localisation utilisateur:', err);
+      setLocationName("Cotonou, Bénin (par défaut)");
+      return null;
+    }
+  };
 
   // Fonction pour charger les données météo
   const loadWeatherData = async () => {
     try {
       setLoading(true);
       setError(null);
+
+      // Charger la localisation de l'utilisateur
+      const location = await loadUserLocation();
       
-      const data = await weatherService.getWeatherData(
-        BENIN_COORDS.latitude,
-        BENIN_COORDS.longitude
-      );
+      // Utiliser la localisation de l'utilisateur ou les coordonnées par défaut
+      const latitude = location?.latitude || DEFAULT_COORDS.latitude;
+      const longitude = location?.longitude || DEFAULT_COORDS.longitude;
       
+      const data = await weatherService.getWeatherData(latitude, longitude);
       setWeatherData(data);
     } catch (err: any) {
       setError(err.message || 'Une erreur s\'est produite');
@@ -143,7 +177,7 @@ export default function WeatherScreen() {
             {/* Localisation */}
             <View style={styles.locationContainer}>
               <Ionicons name="location" size={20} color={Colors.primary} />
-              <Text style={styles.locationText}>Cotonou, Bénin</Text>
+              <Text style={styles.locationText}>{locationName}</Text>
             </View>
 
             {/* Météo actuelle */}
