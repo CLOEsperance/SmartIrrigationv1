@@ -328,6 +328,10 @@ export default function HomeScreen() {
             <Ionicons name="chevron-forward" size={20} color={Colors.white} />
           </TouchableOpacity>
         </LinearGradient>
+        {/* Disclaimer Text */}
+        <Text style={styles.weatherDisclaimer}>
+          Les données météo sont basées sur la position de vos cultures. Des écarts peuvent exister selon les conditions locales.
+        </Text>
       </View>
     );
   };
@@ -572,17 +576,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   weatherSection: {
-    margin: 20,
-    borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    paddingHorizontal: 15,
+    marginBottom: 20,
   },
   weatherGradient: {
     padding: 20,
@@ -898,6 +893,13 @@ const styles = StyleSheet.create({
     bottom: 0,
     opacity: 0.5,
     resizeMode: 'cover',
+  },
+  weatherDisclaimer: {
+    fontSize: 12,
+    color: '#6e6e6e',
+    textAlign: 'center',
+    marginTop: 10,
+    paddingHorizontal: 10,
   },
 });
 

@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, Stack } from 'expo-router';
 import Colors from '../../constants/Colors';
 import { LinearGradient } from 'expo-linear-gradient';
 import { FormattedWeatherData } from '../../services/weather.service';
@@ -10,9 +10,30 @@ import weatherService from '../../services/weather.service';
 import * as Location from 'expo-location';
 
 export default function WeatherDetailsScreen() {
+  // Hide the header with Stack.Screen component
+  return (
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <WeatherDetailsContent />
+    </>
+  );
+}
+
+function WeatherDetailsContent() {
   const [weatherData, setWeatherData] = React.useState<FormattedWeatherData | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Hide the status bar at the top
+  React.useEffect(() => {
+    // Hide header on mount
+    const hideHeader = async () => {
+      // Wait for next frame to ensure UI is ready
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    };
+    
+    hideHeader();
+  }, []);
 
   // Fonction pour obtenir la position actuelle
   const getLocation = async () => {

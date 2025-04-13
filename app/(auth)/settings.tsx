@@ -248,29 +248,82 @@ export default function SettingsScreen() {
         >
           <Text style={styles.sectionTitle}>Sécurité</Text>
           <View style={styles.optionContainer}>
+            <TouchableOpacity style={styles.optionButton}>
+              <Ionicons name="lock-closed" size={24} color={Colors.darkGray} />
+              <Text style={styles.optionText}>Changer de mot de passe</Text>
+              <Ionicons name="chevron-forward" size={24} color={Colors.darkGray} />
+            </TouchableOpacity>
             <TouchableOpacity 
-              style={styles.securityOption}
-              onPress={() => Alert.alert('Modification du mot de passe', 'Cette fonctionnalité sera bientôt disponible')}
+              style={styles.optionButton}
+              onPress={() => Alert.alert(
+                'Signaler une erreur météo', 
+                'Cette fonctionnalité vous permet de nous informer en cas de divergence entre les données météo affichées et les conditions réelles.',
+                [
+                  { 
+                    text: 'Signaler',
+                    onPress: () => {
+                      // TODO: Implémenter le signalement d'erreur météo
+                      Alert.alert('Merci', 'Votre signalement a été enregistré et sera traité par nos équipes.');
+                    }
+                  },
+                  { text: 'Annuler', style: 'cancel' },
+                ]
+              )}
             >
-              <Ionicons name="key" size={24} color={Colors.darkGray} />
-              <Text style={styles.securityOptionText}>Changer le mot de passe</Text>
+              <Ionicons name="alert-circle" size={24} color={Colors.darkGray} />
+              <Text style={styles.optionText}>Signaler une erreur météo</Text>
               <Ionicons name="chevron-forward" size={24} color={Colors.darkGray} />
             </TouchableOpacity>
           </View>
         </Animated.View>
 
-        {/* Bouton Déconnexion */}
-        <Animated.View
+        {/* Section À propos / Crédits */}
+        <Animated.View 
           entering={FadeInDown.delay(600)}
-          style={styles.logoutSection}
+          style={styles.section}
         >
-          <TouchableOpacity
+          <Text style={styles.sectionTitle}>À propos</Text>
+          <View style={styles.optionContainer}>
+            <View style={styles.aboutTextContainer}>
+              <Text style={styles.aboutText}>
+                SmartIrrigation est une application destinée à aider les agriculteurs béninois à optimiser l'irrigation de leurs cultures.
+              </Text>
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.optionButton}
+              onPress={() => {
+                // Ouvrir WhatsApp ou envoyer un email d'assistance
+                Alert.alert('Contacter l\'assistance', 'Cette fonctionnalité vous redirigerait vers WhatsApp ou votre application de messagerie.');
+              }}
+            >
+              <Ionicons name="help-circle" size={24} color={Colors.darkGray} />
+              <Text style={styles.optionText}>Besoin d'aide ? Contactez-nous</Text>
+              <Ionicons name="chevron-forward" size={24} color={Colors.darkGray} />
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+
+        {/* Section Déconnexion */}
+        <Animated.View 
+          entering={FadeInDown.delay(700)}
+          style={styles.section}
+        >
+          <TouchableOpacity 
             style={styles.logoutButton}
             onPress={handleLogout}
           >
-            <Ionicons name="log-out-outline" size={24} color={Colors.white} />
-            <Text style={styles.logoutButtonText}>Se déconnecter</Text>
+            <Ionicons name="log-out" size={24} color={Colors.white} />
+            <Text style={styles.logoutButtonText}>Déconnexion</Text>
           </TouchableOpacity>
+        </Animated.View>
+
+        {/* Version de l'application */}
+        <Animated.View 
+          entering={FadeInDown.delay(800)}
+          style={styles.versionContainer}
+        >
+          <Text style={styles.versionText}>Version 1.0.2</Text>
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
@@ -443,19 +496,12 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     marginTop: 8,
   },
-  securityOption: {
+  optionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.lightGray,
-  },
-  securityOptionText: {
-    flex: 1,
-    fontSize: 16,
-    fontFamily: 'OpenSans-Regular',
-    color: Colors.darkGray,
-    marginLeft: 12,
   },
   logoutSection: {
     marginBottom: 32,
@@ -471,6 +517,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Montserrat-Bold',
     marginLeft: 8,
+  },
+  aboutTextContainer: {
+    backgroundColor: Colors.lightGray,
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+  },
+  aboutText: {
+    fontSize: 14,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  versionContainer: {
+    alignItems: 'center',
+    marginVertical: 20,
+  },
+  versionText: {
+    fontSize: 14,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.mediumGray,
   },
 });
 
