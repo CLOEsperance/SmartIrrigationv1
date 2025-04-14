@@ -14,7 +14,6 @@ const Colors = {
   // Couleurs neutres
   white: '#FFFFFF', // Blanc - Arrière-plan principal
   lightGray: '#F0F0F0', // Gris clair - Séparateurs et zones inactives
-  mediumGray: '#9E9E9E', // Gris moyen - Textes secondaires, version d'application
   darkGray: '#555555', // Gris foncé - Texte principal
   
   // Couleurs fonctionnelles

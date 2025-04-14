@@ -112,7 +112,11 @@ export default function CropConfigScreen() {
       setTempDate(selectedDate);
       setSelectedCrop({
         ...selectedCrop,
-        details: { ...selectedCrop.details, plantingDate: selectedDate.toISOString() }
+        details: { 
+          soilType: selectedCrop.details?.soilType || '',
+          area: selectedCrop.details?.area || '',
+          plantingDate: selectedDate.toISOString() 
+        }
       });
     }
   };
@@ -127,9 +131,9 @@ export default function CropConfigScreen() {
       crop.id === selectedCrop.id ? { 
         ...crop, 
         details: { 
-          ...selectedCrop.details, 
           soilType: selectedSoils.join(', '),
-          area: surfaceArea 
+          area: surfaceArea,
+          plantingDate: selectedCrop.details?.plantingDate || new Date().toISOString()
         } 
       } : crop
     ));

@@ -10,13 +10,17 @@ import {
   Switch,
   Alert,
   Platform,
+  Linking,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Colors from '../../constants/Colors';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useAuth } from '../../contexts/AuthContext';
+import { addDoc, collection } from 'firebase/firestore';
+import { db } from '../../firebaseConfig';
+import Constants from 'expo-constants';
 
 export default function SettingsScreen() {
   // Récupérer les données de l'utilisateur depuis le contexte d'authentification
@@ -30,6 +34,9 @@ export default function SettingsScreen() {
   });
   const [offlineMode, setOfflineMode] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('Français');
+  
+  // Récupérer la version de l'application depuis app.json
+  const appVersion = Constants.expoConfig?.version || '1.0.0';
   
   // Générer une URL d'avatar par défaut basée sur le nom d'utilisateur
   const avatarUrl = currentUser?.photoURL || 
@@ -103,6 +110,63 @@ export default function SettingsScreen() {
       Alert.alert('Succès', 'Profil mis à jour avec succès');
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de mettre à jour le profil. Veuillez réessayer.');
+    }
+  };
+  
+  // Fonction pour signaler une erreur météo
+  const reportWeatherError = async () => {
+    try {
+      Alert.alert(
+        'Signaler une erreur météo',
+        'Veuillez décrire le problème avec les données météorologiques actuelles',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Signaler',
+            onPress: async () => {
+              // Ajouter un rapport à Firestore
+              await addDoc(collection(db, 'weatherReports'), {
+                userId: currentUser?.uid,
+                userEmail: currentUser?.email,
+                timestamp: new Date(),
+                status: 'pending',
+                // Ici on pourrait ajouter d'autres détails comme la localisation actuelle
+              });
+              Alert.alert('Merci', 'Votre signalement a été envoyé et sera examiné par notre équipe.');
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('Erreur lors du signalement:', error);
+      Alert.alert('Erreur', 'Impossible d\'envoyer le signalement. Veuillez réessayer.');
+    }
+  };
+  
+  // Fonction pour contacter l'assistance
+  const contactSupport = async () => {
+    // Numéro WhatsApp de l'assistance
+    const whatsappNumber = '+22990000000'; // Remplacer par le vrai numéro
+    const message = `Bonjour, j'ai besoin d'aide avec l'application SmartIrrigation. Je suis ${userData.name} (${userData.email}).`;
+    
+    const whatsappUrl = `whatsapp://send?phone=${whatsappNumber}&text=${encodeURIComponent(message)}`;
+    
+    try {
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        // Fallback vers l'email si WhatsApp n'est pas installé
+        const mailtoUrl = `mailto:support@smartirrigation.bj?subject=Demande d'assistance&body=${encodeURIComponent(message)}`;
+        await Linking.openURL(mailtoUrl);
+      }
+    } catch (error) {
+      console.error('Erreur lors de l\'ouverture de WhatsApp:', error);
+      Alert.alert(
+        'Erreur',
+        'Impossible d\'ouvrir WhatsApp. Veuillez envoyer un email à support@smartirrigation.bj'
+      );
     }
   };
 
@@ -248,82 +312,83 @@ export default function SettingsScreen() {
         >
           <Text style={styles.sectionTitle}>Sécurité</Text>
           <View style={styles.optionContainer}>
-            <TouchableOpacity style={styles.optionButton}>
-              <Ionicons name="lock-closed" size={24} color={Colors.darkGray} />
-              <Text style={styles.optionText}>Changer de mot de passe</Text>
-              <Ionicons name="chevron-forward" size={24} color={Colors.darkGray} />
-            </TouchableOpacity>
             <TouchableOpacity 
-              style={styles.optionButton}
-              onPress={() => Alert.alert(
-                'Signaler une erreur météo', 
-                'Cette fonctionnalité vous permet de nous informer en cas de divergence entre les données météo affichées et les conditions réelles.',
-                [
-                  { 
-                    text: 'Signaler',
-                    onPress: () => {
-                      // TODO: Implémenter le signalement d'erreur météo
-                      Alert.alert('Merci', 'Votre signalement a été enregistré et sera traité par nos équipes.');
-                    }
-                  },
-                  { text: 'Annuler', style: 'cancel' },
-                ]
-              )}
+              style={styles.securityOption}
+              onPress={() => Alert.alert('Modification du mot de passe', 'Cette fonctionnalité sera bientôt disponible')}
             >
-              <Ionicons name="alert-circle" size={24} color={Colors.darkGray} />
-              <Text style={styles.optionText}>Signaler une erreur météo</Text>
+              <Ionicons name="key" size={24} color={Colors.darkGray} />
+              <Text style={styles.securityOptionText}>Changer le mot de passe</Text>
               <Ionicons name="chevron-forward" size={24} color={Colors.darkGray} />
             </TouchableOpacity>
           </View>
         </Animated.View>
-
+        
+        {/* Section Signalement d'erreurs */}
+        <Animated.View 
+          entering={FadeInDown.delay(550)}
+          style={styles.section}
+        >
+          <Text style={styles.sectionTitle}>Signalements</Text>
+          <View style={styles.optionContainer}>
+            <TouchableOpacity 
+              style={styles.securityOption}
+              onPress={reportWeatherError}
+            >
+              <FontAwesome5 name="cloud-sun-rain" size={22} color={Colors.darkGray} />
+              <Text style={styles.securityOptionText}>Signaler une erreur météo</Text>
+              <Ionicons name="chevron-forward" size={24} color={Colors.darkGray} />
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+        
+        {/* Section Assistance / Aide */}
+        <Animated.View 
+          entering={FadeInDown.delay(575)}
+          style={styles.section}
+        >
+          <Text style={styles.sectionTitle}>Assistance</Text>
+          <View style={styles.optionContainer}>
+            <TouchableOpacity 
+              style={styles.securityOption}
+              onPress={contactSupport}
+            >
+              <Ionicons name="help-circle" size={24} color={Colors.darkGray} />
+              <Text style={styles.securityOptionText}>Besoin d'aide ? Contactez-nous</Text>
+              <Ionicons name="chevron-forward" size={24} color={Colors.darkGray} />
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+        
         {/* Section À propos / Crédits */}
         <Animated.View 
           entering={FadeInDown.delay(600)}
           style={styles.section}
         >
           <Text style={styles.sectionTitle}>À propos</Text>
-          <View style={styles.optionContainer}>
-            <View style={styles.aboutTextContainer}>
-              <Text style={styles.aboutText}>
-                SmartIrrigation est une application destinée à aider les agriculteurs béninois à optimiser l'irrigation de leurs cultures.
-              </Text>
+          <View style={styles.aboutContainer}>
+            <Text style={styles.aboutText}>
+              SmartIrrigation est une application destinée à aider les agriculteurs béninois 
+              à optimiser l'irrigation de leurs cultures grâce à des recommandations personnalisées 
+              basées sur les conditions météorologiques et les besoins spécifiques des plantes.
+            </Text>
+            <View style={styles.versionContainer}>
+              <Text style={styles.versionText}>Version {appVersion}</Text>
             </View>
-            
-            <TouchableOpacity 
-              style={styles.optionButton}
-              onPress={() => {
-                // Ouvrir WhatsApp ou envoyer un email d'assistance
-                Alert.alert('Contacter l\'assistance', 'Cette fonctionnalité vous redirigerait vers WhatsApp ou votre application de messagerie.');
-              }}
-            >
-              <Ionicons name="help-circle" size={24} color={Colors.darkGray} />
-              <Text style={styles.optionText}>Besoin d'aide ? Contactez-nous</Text>
-              <Ionicons name="chevron-forward" size={24} color={Colors.darkGray} />
-            </TouchableOpacity>
           </View>
         </Animated.View>
 
-        {/* Section Déconnexion */}
-        <Animated.View 
-          entering={FadeInDown.delay(700)}
-          style={styles.section}
+        {/* Bouton Déconnexion */}
+        <Animated.View
+          entering={FadeInDown.delay(650)}
+          style={styles.logoutSection}
         >
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.logoutButton}
             onPress={handleLogout}
           >
-            <Ionicons name="log-out" size={24} color={Colors.white} />
-            <Text style={styles.logoutButtonText}>Déconnexion</Text>
+            <Ionicons name="log-out-outline" size={24} color={Colors.danger} />
+            <Text style={styles.logoutButtonText}>Se déconnecter</Text>
           </TouchableOpacity>
-        </Animated.View>
-
-        {/* Version de l'application */}
-        <Animated.View 
-          entering={FadeInDown.delay(800)}
-          style={styles.versionContainer}
-        >
-          <Text style={styles.versionText}>Version 1.0.2</Text>
         </Animated.View>
       </ScrollView>
     </SafeAreaView>
@@ -496,14 +561,23 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     marginTop: 8,
   },
-  optionButton: {
+  securityOption: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: Colors.lightGray,
   },
+  securityOptionText: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
+    marginLeft: 12,
+  },
   logoutSection: {
+    marginHorizontal: 16,
+    marginTop: 16,
     marginBottom: 32,
   },
   logoutButton: {
@@ -511,34 +585,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 12,
+    backgroundColor: Colors.white,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.danger,
   },
   logoutButtonText: {
-    color: Colors.white,
+    color: Colors.danger,
     fontSize: 16,
     fontFamily: 'Montserrat-Bold',
     marginLeft: 8,
   },
-  aboutTextContainer: {
-    backgroundColor: Colors.lightGray,
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
+  aboutContainer: {
+    paddingVertical: 8,
   },
   aboutText: {
     fontSize: 14,
     fontFamily: 'OpenSans-Regular',
     color: Colors.darkGray,
-    textAlign: 'center',
     lineHeight: 20,
+    textAlign: 'justify',
   },
   versionContainer: {
+    marginTop: 16,
     alignItems: 'center',
-    marginVertical: 20,
   },
   versionText: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: 'OpenSans-Regular',
-    color: Colors.mediumGray,
+    color: Colors.darkGray,
+    opacity: 0.7,
   },
 });
 

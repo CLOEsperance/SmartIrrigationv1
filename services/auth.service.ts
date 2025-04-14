@@ -8,6 +8,10 @@ import {
   UserCredential
 } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
+import storageService from './storage.service';
+
+// Clé pour stocker l'état d'authentification dans le stockage local
+const AUTH_STATE_KEY = 'smart_irrigation_auth_state';
 
 /**
  * Service d'authentification pour l'application SmartIrrigation
@@ -29,6 +33,13 @@ class AuthService {
       // Mettre à jour le profil avec le nom d'utilisateur
       if (userCredential.user) {
         await updateProfile(userCredential.user, {
+          displayName: username
+        });
+        
+        // Stocker l'état d'authentification
+        await this.saveAuthState({
+          uid: userCredential.user.uid,
+          email: userCredential.user.email,
           displayName: username
         });
       }
@@ -64,7 +75,18 @@ class AuthService {
    */
   async login(email: string, password: string): Promise<UserCredential> {
     try {
-      return await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Stocker l'état d'authentification
+      if (userCredential.user) {
+        await this.saveAuthState({
+          uid: userCredential.user.uid,
+          email: userCredential.user.email,
+          displayName: userCredential.user.displayName
+        });
+      }
+      
+      return userCredential;
     } catch (error: any) {
       // Gestion des erreurs spécifiques à Firebase
       let errorMessage = "Erreur lors de la connexion";
@@ -97,6 +119,8 @@ class AuthService {
   async logout(): Promise<void> {
     try {
       await signOut(auth);
+      // Supprimer l'état d'authentification lors de la déconnexion
+      await this.clearAuthState();
     } catch (error: any) {
       throw new Error("Erreur lors de la déconnexion: " + error.message);
     }
@@ -141,6 +165,46 @@ class AuthService {
    */
   isLoggedIn(): boolean {
     return !!auth.currentUser;
+  }
+  
+  /**
+   * Sauvegarde l'état d'authentification dans le stockage local
+   * @param userData Données de l'utilisateur à sauvegarder
+   */
+  async saveAuthState(userData: any): Promise<void> {
+    try {
+      // Utiliser le stockage local
+      await storageService.setItem(AUTH_STATE_KEY, userData);
+    } catch (error) {
+      console.error('Erreur lors de la sauvegarde de l\'état d\'authentification:', error);
+    }
+  }
+  
+  /**
+   * Récupère l'état d'authentification depuis le stockage local
+   * @returns Les données de l'utilisateur ou null si non connecté
+   */
+  async getAuthState(): Promise<any> {
+    try {
+      // Utiliser le stockage local
+      const authData = await storageService.getItem<any>(AUTH_STATE_KEY);
+      return authData;
+    } catch (error) {
+      console.error('Erreur lors de la récupération de l\'état d\'authentification:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Supprime l'état d'authentification du stockage local
+   */
+  async clearAuthState(): Promise<void> {
+    try {
+      // Utiliser le stockage local
+      await storageService.removeItem(AUTH_STATE_KEY);
+    } catch (error) {
+      console.error('Erreur lors de la suppression de l\'état d\'authentification:', error);
+    }
   }
 }
 

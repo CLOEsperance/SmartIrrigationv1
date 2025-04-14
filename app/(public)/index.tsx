@@ -2,42 +2,65 @@ import React, { useEffect } from 'react';
 import { StyleSheet, View, Image, Text, Animated } from 'react-native';
 import { router } from 'expo-router';
 import Colors from '../../constants/Colors';
+import { useAuth } from '../../contexts/AuthContext';
+import authService from '../../services/auth.service';
 
 export default function SplashScreen() {
   const loadingProgress = React.useRef(new Animated.Value(0)).current;
   const scaleAnimation = React.useRef(new Animated.Value(1)).current;
+  const { currentUser, authStateChecked } = useAuth();
 
+  // Vérifier l'état d'authentification persisté
   useEffect(() => {
-    // Animation de pulsation du logo
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(scaleAnimation, {
-          toValue: 1.05,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnimation, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
+    const checkAuthState = async () => {
+      try {
+        // Animation de la barre de chargement
+        Animated.timing(loadingProgress, {
+          toValue: 100,
+          duration: 2000, // Durée réduite pour une meilleure expérience
+          useNativeDriver: false,
+        }).start();
 
-    // Animation de la barre de chargement
-    Animated.timing(loadingProgress, {
-      toValue: 100,
-      duration: 3000,
-      useNativeDriver: false,
-    }).start();
+        // Animation de pulsation du logo
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(scaleAnimation, {
+              toValue: 1.05,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+            Animated.timing(scaleAnimation, {
+              toValue: 1,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+          ])
+        ).start();
 
-    // Redirection vers l'écran de bienvenue après 3 secondes
-    const timer = setTimeout(() => {
-      router.replace('/welcome');
-    }, 3000);
+        // Vérifier l'état d'authentification
+        const authState = await authService.getAuthState();
+        
+        // Redirection après l'animation
+        const timer = setTimeout(() => {
+          if (authState && currentUser) {
+            // Si l'utilisateur est déjà connecté, rediriger vers l'accueil
+            router.replace('/(auth)/home');
+          } else {
+            // Sinon, rediriger vers l'écran de bienvenue
+            router.replace('/welcome');
+          }
+        }, 2000);
+        
+        return () => clearTimeout(timer);
+      } catch (error) {
+        console.error('Erreur lors de la vérification de l\'état d\'authentification:', error);
+        // En cas d'erreur, rediriger vers l'écran de bienvenue
+        router.replace('/welcome');
+      }
+    };
 
-    return () => clearTimeout(timer);
-  }, []);
+    checkAuthState();
+  }, [currentUser, authStateChecked]);
 
   return (
     <View style={styles.container}>

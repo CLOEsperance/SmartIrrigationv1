@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,14 @@ import {
   ScrollView,
   Image,
   SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Colors from '../../constants/Colors';
+import { useAuth } from '../../contexts/AuthContext';
+import userService, { UserData } from '../../services/user.service';
 
 type TabType = 'besoins' | 'historique';
 
@@ -22,17 +25,44 @@ interface IrrigationHistory {
   isCompleted: boolean;
 }
 
+interface CropDetails {
+  id: string;
+  name: string;
+  soilType: string;
+  area: string;
+  plantingDate: string;
+  image: any;  // Pour l'image locale
+  waterNeed: string;  // Valeur simulée
+  optimalTime: string;  // Valeur simulée
+}
+
 export default function IrrigationScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('besoins');
-  const [selectedCulture] = useState({
-    name: 'Tomate',
-    image: require('../../assets/images/culture_tomate.jpg.png'),
-    soilType: 'Argileux',
-    area: '100m²',
-    plantedDate: '15/03/2023',
-    waterNeed: '2.5L/m²',
-    optimalTime: '17:00 - 18:00',
-  });
+  const [selectedCultureIndex, setSelectedCultureIndex] = useState(0);
+  const [userCrops, setUserCrops] = useState<CropDetails[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Obtenir l'utilisateur actuellement connecté
+  const { currentUser } = useAuth();
+
+  // Mapping des images locales pour les cultures
+  const cropImages: {[key: string]: any} = {
+    'Tomate': require('../../assets/images/culture_tomate.jpg.png'),
+    'Maïs': require('../../assets/images/culture_tomate.jpg.png'),
+    'Laitue': require('../../assets/images/culture_tomate.jpg.png'),
+    // Valeur par défaut si l'image n'est pas trouvée
+    'default': require('../../assets/images/culture_tomate.jpg.png')
+  };
+
+  // Valeurs simulées pour les besoins en eau et heures optimales
+  const simulatedData: {[key: string]: {waterNeed: string, optimalTime: string}} = {
+    'Tomate': { waterNeed: '2.5L/m²', optimalTime: '17:00 - 18:00' },
+    'Maïs': { waterNeed: '3.0L/m²', optimalTime: '6:00 - 7:00' },
+    'Laitue': { waterNeed: '1.8L/m²', optimalTime: '18:00 - 19:00' },
+    // Valeur par défaut
+    'default': { waterNeed: '2.0L/m²', optimalTime: '17:00 - 18:00' }
+  };
 
   const [irrigationHistory] = useState<IrrigationHistory[]>([
     {
@@ -79,41 +109,151 @@ export default function IrrigationScreen() {
     },
   ]);
 
-  const renderBesoinsTab = () => (
-    <ScrollView style={styles.tabContent}>
-      <View style={styles.cultureHeader}>
-        <Image source={selectedCulture.image} style={styles.cultureImage} />
-        <Text style={styles.cultureName}>{selectedCulture.name}</Text>
-      </View>
+  // Charger les données utilisateur à partir de Firestore
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        if (!currentUser) {
+          throw new Error('Utilisateur non connecté');
+        }
+        
+        // Récupérer les données de l'utilisateur à partir de Firestore
+        const userData = await userService.getUserData(currentUser.uid);
+        
+        if (!userData || !userData.crops || userData.crops.length === 0) {
+          throw new Error('Aucune culture configurée');
+        }
+        
+        // Transformer les données des cultures pour inclure les images et simuler les besoins en eau
+        const cropDetails: CropDetails[] = userData.crops.map(crop => {
+          // Obtenir l'image correspondante ou l'image par défaut
+          const image = cropImages[crop.name] || cropImages.default;
+          
+          // Obtenir les données simulées ou les valeurs par défaut
+          const simData = simulatedData[crop.name] || simulatedData.default;
+          
+          return {
+            ...crop,
+            image,
+            waterNeed: simData.waterNeed,
+            optimalTime: simData.optimalTime
+          };
+        });
+        
+        setUserCrops(cropDetails);
+      } catch (error: any) {
+        console.error('Erreur lors du chargement des données utilisateur:', error);
+        setError(error.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadUserData();
+  }, [currentUser]);
 
-      <View style={styles.infoContainer}>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Type de sol:</Text>
-          <Text style={styles.infoValue}>{selectedCulture.soilType}</Text>
+  const renderBesoinsTab = () => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingText}>Chargement des données...</Text>
         </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Superficie:</Text>
-          <Text style={styles.infoValue}>{selectedCulture.area}</Text>
+      );
+    }
+    
+    if (error) {
+      return (
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={48} color={Colors.danger} />
+          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorSubtext}>
+            Veuillez configurer vos cultures dans les paramètres de votre profil.
+          </Text>
         </View>
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>Planté le:</Text>
-          <Text style={styles.infoValue}>{selectedCulture.plantedDate}</Text>
+      );
+    }
+    
+    if (userCrops.length === 0) {
+      return (
+        <View style={styles.errorContainer}>
+          <Ionicons name="leaf" size={48} color={Colors.primary} />
+          <Text style={styles.errorText}>Aucune culture configurée</Text>
+          <Text style={styles.errorSubtext}>
+            Veuillez configurer vos cultures dans les paramètres de votre profil.
+          </Text>
         </View>
-        <View style={[styles.infoRow, styles.highlightedInfo]}>
-          <Text style={[styles.infoLabel, styles.highlightedText]}>Besoin en eau:</Text>
-          <Text style={[styles.infoValue, styles.highlightedText]}>{selectedCulture.waterNeed}</Text>
-        </View>
-        <View style={[styles.infoRow, styles.highlightedInfo]}>
-          <Text style={[styles.infoLabel, styles.highlightedText]}>Heure optimale:</Text>
-          <Text style={[styles.infoValue, styles.highlightedText]}>{selectedCulture.optimalTime}</Text>
-        </View>
-      </View>
+      );
+    }
+    
+    const selectedCulture = userCrops[selectedCultureIndex];
+    
+    return (
+      <ScrollView style={styles.tabContent}>
+        {userCrops.length > 1 && (
+          <View style={styles.culturePicker}>
+            <Text style={styles.culturePickerLabel}>Sélectionnez une culture:</Text>
+            <View style={styles.culturePickerButtons}>
+              {userCrops.map((crop, index) => (
+                <TouchableOpacity
+                  key={crop.id}
+                  style={[
+                    styles.culturePickerButton,
+                    selectedCultureIndex === index && styles.culturePickerButtonActive
+                  ]}
+                  onPress={() => setSelectedCultureIndex(index)}
+                >
+                  <Text 
+                    style={[
+                      styles.culturePickerButtonText,
+                      selectedCultureIndex === index && styles.culturePickerButtonTextActive
+                    ]}
+                  >
+                    {crop.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
 
-      <TouchableOpacity style={styles.irrigationButton}>
-        <Text style={styles.irrigationButtonText}>Marquer comme arrosé</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
+        <View style={styles.cultureHeader}>
+          <Image source={selectedCulture.image} style={styles.cultureImage} />
+          <Text style={styles.cultureName}>{selectedCulture.name}</Text>
+        </View>
+
+        <View style={styles.infoContainer}>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Type de sol:</Text>
+            <Text style={styles.infoValue}>{selectedCulture.soilType}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Superficie:</Text>
+            <Text style={styles.infoValue}>{selectedCulture.area}</Text>
+          </View>
+          <View style={styles.infoRow}>
+            <Text style={styles.infoLabel}>Planté le:</Text>
+            <Text style={styles.infoValue}>{selectedCulture.plantingDate}</Text>
+          </View>
+          <View style={[styles.infoRow, styles.highlightedInfo]}>
+            <Text style={[styles.infoLabel, styles.highlightedText]}>Besoin en eau:</Text>
+            <Text style={[styles.infoValue, styles.highlightedText]}>{selectedCulture.waterNeed}</Text>
+          </View>
+          <View style={[styles.infoRow, styles.highlightedInfo]}>
+            <Text style={[styles.infoLabel, styles.highlightedText]}>Heure optimale:</Text>
+            <Text style={[styles.infoValue, styles.highlightedText]}>{selectedCulture.optimalTime}</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.irrigationButton}>
+          <Text style={styles.irrigationButtonText}>Marquer comme arrosé</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
+  };
 
   const renderHistoriqueTab = () => (
     <ScrollView style={styles.tabContent}>
@@ -439,5 +579,72 @@ const styles = StyleSheet.create({
     fontFamily: 'Montserrat-Bold',
     color: Colors.white,
     marginVertical: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 15,
+    fontSize: 16,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    marginTop: 15,
+    fontSize: 18,
+    fontFamily: 'Montserrat-Bold',
+    color: Colors.darkGray,
+    textAlign: 'center',
+  },
+  errorSubtext: {
+    marginTop: 10,
+    fontSize: 14,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
+    textAlign: 'center',
+  },
+  culturePicker: {
+    backgroundColor: Colors.white,
+    padding: 15,
+    marginBottom: 1,
+  },
+  culturePickerLabel: {
+    fontSize: 16,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
+    marginBottom: 10,
+  },
+  culturePickerButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  culturePickerButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  culturePickerButtonActive: {
+    backgroundColor: Colors.primary,
+  },
+  culturePickerButtonText: {
+    fontSize: 14,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.primary,
+  },
+  culturePickerButtonTextActive: {
+    color: Colors.white,
   },
 }); 
