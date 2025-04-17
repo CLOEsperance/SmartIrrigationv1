@@ -133,7 +133,7 @@ export default function ConseilsIAScreen() {
               style={styles.recommendationCard}
             >
               <View style={[styles.iconContainer, { backgroundColor: item.color }]}>
-                <Ionicons name={item.icon} size={24} color="white" />
+                <Ionicons name={item.icon as any} size={24} color="white" />
               </View>
               <View style={styles.recommendationContent}>
                 <Text style={styles.recommendationTitle}>{item.title}</Text>
