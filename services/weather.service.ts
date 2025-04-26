@@ -31,6 +31,7 @@ export interface WeatherResponse {
     temperature_2m_min: number[];
     precipitation_sum: number[];
     precipitation_probability_max: number[];
+    shortwave_radiation_sum: number[];
   };
 }
 
@@ -52,6 +53,8 @@ export interface FormattedWeatherData {
   cloudCover: number;               // Couverture nuageuse actuelle en %
   windSpeed: number;                // Vitesse du vent actuelle en km/h
   windDirection: number;            // Direction du vent actuelle en degrés
+  shortwave_radiation_sum: number;  // Rayonnement solaire en MJ/m²/jour
+  isLocalFromDB?: boolean;          // Indique si la localisation provient de la base de données
   dailyForecast: {
     maxTemperatures: number[];
     minTemperatures: number[];
@@ -129,7 +132,7 @@ class WeatherService {
   };
 
   // Mapping des codes météo vers les dégradés de couleur
-  private weatherGradients: { [key: number]: string[] } = {
+  private weatherGradients: { [key: number]: string[], defaultGradient: string[] } = {
     0: ['#4A90E2', '#87CEEB'],    // Ciel dégagé - bleu clair
     1: ['#4A90E2', '#B7E4F7'],    // Principalement dégagé
     2: ['#6FB1E5', '#C9E6F7'],    // Partiellement nuageux
@@ -144,26 +147,35 @@ class WeatherService {
     65: ['#34495E', '#4A90E2'],   // Pluie forte
     80: ['#4A90E2', '#6FB1E5'],   // Averses
     95: ['#34495E', '#4A90E2'],   // Orage
-    default: ['#4A90E2', '#87CEEB'] // Dégradé par défaut - bleu ciel
+    defaultGradient: ['#4A90E2', '#87CEEB'] // Dégradé par défaut - bleu ciel
   };
 
   /**
    * Récupère les données météo pour une localisation donnée
    * @param latitude Latitude de la localisation
    * @param longitude Longitude de la localisation
+   * @param isLocalFromDB Indique si la localisation provient de la base de données
    * @returns Promise contenant les données météo formatées
+   * @throws Error si les données ne peuvent pas être récupérées
    */
-  async getWeatherData(latitude: number, longitude: number): Promise<FormattedWeatherData> {
+  async getWeatherData(
+    latitude: number, 
+    longitude: number, 
+    isLocalFromDB: boolean = false
+  ): Promise<FormattedWeatherData> {
+    console.log(`Récupération des données météo pour: Lat: ${latitude}, Long: ${longitude}`);
+    
     try {
       // Ajout de paramètres supplémentaires pour plus de précision
-      const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&hourly=temperature_2m,relative_humidity_2m,precipitation,weathercode,cloudcover,windspeed_10m,winddirection_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max&timezone=auto&forecast_days=10`;
+      const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true&hourly=temperature_2m,relative_humidity_2m,precipitation,weathercode,cloudcover,windspeed_10m,winddirection_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,shortwave_radiation_sum&timezone=auto&forecast_days=10`;
       
+      console.log(`Appel API: ${apiUrl}`);
       // Faire la requête à l'API
       const response = await fetch(apiUrl);
       
       // Vérifier si la requête a réussi
       if (!response.ok) {
-        throw new Error(`Erreur API: ${response.status} - ${response.statusText}`);
+        throw new Error(`Erreur API météo: ${response.status} - ${response.statusText}`);
       }
       
       // Convertir la réponse en JSON
@@ -183,6 +195,16 @@ class WeatherService {
       // Déterminer si c'est le jour ou la nuit
       const isNight = this.isNightTime();
       
+      // Récupérer le nom de la localisation
+      let locationName;
+      try {
+        locationName = await this.getLocationName(latitude, longitude);
+      } catch (locError) {
+        console.error("Erreur lors de la récupération du nom de la localisation:", locError);
+        // Ne pas interrompre le flux, mais garder une trace de l'erreur
+        locationName = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
+      }
+      
       // Formater les données
       const formattedData: FormattedWeatherData = {
         currentTemperature: data.current_weather.temperature,
@@ -194,13 +216,15 @@ class WeatherService {
         hourlyPrecipitation: data.hourly.precipitation.slice(currentHourIndex, currentHourIndex + 24),
         weatherDescription: this.getWeatherDescription(weatherCode),
         nextRainHours: nextRainHours,
-        locationName: await this.getLocationName(latitude, longitude),
+        locationName: locationName,
         weatherIcon: this.weatherIcons[weatherCode] || "cloud",
         backgroundGradient: isNight ? this.getNightGradient() : this.getDayGradient(weatherCode),
         isNight: isNight,
         cloudCover: data.hourly.cloudcover[currentHourIndex],
         windSpeed: data.hourly.windspeed_10m[currentHourIndex],
         windDirection: data.hourly.winddirection_10m[currentHourIndex],
+        shortwave_radiation_sum: data.daily.shortwave_radiation_sum[0],
+        isLocalFromDB: isLocalFromDB,
         dailyForecast: {
           maxTemperatures: data.daily.temperature_2m_max,
           minTemperatures: data.daily.temperature_2m_min,
@@ -209,10 +233,11 @@ class WeatherService {
         }
       };
       
+      console.log(`Données météo récupérées avec succès pour: ${locationName}`);
       return formattedData;
     } catch (error) {
       console.error('Erreur lors de la récupération des données météo:', error);
-      throw new Error('Impossible de récupérer les données météo. Veuillez réessayer plus tard.');
+      throw new Error(`Impossible de récupérer les données météo: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
     }
   }
 
@@ -311,8 +336,8 @@ class WeatherService {
   }
 
   private getDayGradient(weatherCode: number): string[] {
-    // Gradient bleu ciel pour la journée
-    return ['#87CEEB', '#4A90E2'];
+    // Retourner le dégradé correspondant au code météo ou le dégradé par défaut
+    return this.weatherGradients[weatherCode] || this.weatherGradients.defaultGradient;
   }
 
   private getNightGradient(): string[] {

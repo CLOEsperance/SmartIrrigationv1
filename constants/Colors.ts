@@ -28,5 +28,5 @@ const Colors = {
   cardBackground: 'rgba(76, 175, 80, 0.08)', // Fond de carte
   darkOverlay: 'rgba(0, 0, 0, 0.3)', // Superposition sombre pour les images
 };
-
 export default Colors;
+

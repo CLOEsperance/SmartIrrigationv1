@@ -17,13 +17,14 @@ import Colors from '../../constants/Colors';
 import { useAuth } from '../../contexts/AuthContext';
 import userService, { UserData } from '../../services/user.service';
 import weatherService, { FormattedWeatherData } from '../../services/weather.service';
-import recommendationService, { 
+import { 
   CultureData, 
   SolData, 
   WeatherData, 
   Recommandation,
   convertToCultureData,
-  convertToSolData
+  convertToSolData,
+  genererRecommandation
 } from '../../services/recommendations.service';
 import IrrigationCard from '../../components/recommendations/IrrigationCard';
 import AlertBanner from '../../components/recommendations/AlertBanner';
@@ -117,14 +118,22 @@ export default function IrrigationScreen() {
 
   // Charger les données utilisateur et météo
   useEffect(() => {
-    loadUserDataAndWeather();
+    if (currentUser) {
+      console.log("Chargement des données utilisateur et météo");
+      loadUserDataAndWeather();
+    } else {
+      console.log("Utilisateur non connecté, impossible de charger les données");
+    }
   }, [currentUser]);
 
   // Générer une recommandation chaque fois que l'utilisateur change de culture sélectionnée
   // ou que les données météo changent
   useEffect(() => {
     if (userCrops.length > 0 && weatherData) {
+      console.log("Données disponibles, génération de recommandation");
       generateRecommendation();
+    } else {
+      console.log("Données incomplètes pour générer une recommandation");
     }
   }, [selectedCultureIndex, weatherData, userCrops]);
 
@@ -140,12 +149,20 @@ export default function IrrigationScreen() {
         throw new Error('Utilisateur non connecté');
       }
       
+      console.log("Récupération des données pour l'utilisateur:", currentUser.uid);
+      
       // Récupérer les données de l'utilisateur à partir de Firestore
       const userData = await userService.getUserData(currentUser.uid);
       
-      if (!userData || !userData.crops || userData.crops.length === 0) {
-        throw new Error('Aucune culture configurée');
+      if (!userData) {
+        throw new Error('Profil utilisateur non trouvé. Veuillez configurer votre profil.');
       }
+      
+      if (!userData.crops || userData.crops.length === 0) {
+        throw new Error('Aucune culture configurée. Veuillez ajouter des cultures dans votre profil.');
+      }
+      
+      console.log("Données utilisateur récupérées:", JSON.stringify(userData));
       
       // Transformer les données des cultures pour inclure les images
       const cropDetails: CropDetails[] = userData.crops.map(crop => {
@@ -162,48 +179,125 @@ export default function IrrigationScreen() {
       
       // Récupérer les coordonnées de l'utilisateur pour la météo
       let location;
+      let isLocalFromDB = false;
       
-      if (userData.location) {
-        // Utiliser la localisation stockée
-        location = {
-          latitude: userData.location.latitude,
-          longitude: userData.location.longitude
-        };
-      } else {
-        // Demander la permission de localisation
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        
-        if (status !== 'granted') {
-          // Utiliser des coordonnées par défaut pour Cotonou
-          location = { latitude: 6.36, longitude: 2.42 };
-        } else {
-          const currentLocation = await Location.getCurrentPositionAsync({});
+      if (!userData.location || !userData.location.latitude || !userData.location.longitude) {
+        // Si les données de localisation ne sont pas dans Firebase, demander la permission pour les obtenir
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          
+          if (status !== 'granted') {
+            throw new Error('La permission de localisation est nécessaire pour des recommandations précises.');
+          }
+          
+          console.log("Permission accordée, récupération de la localisation actuelle");
+          const currentLocation = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High
+          });
+          
+          if (!currentLocation || !currentLocation.coords) {
+            throw new Error('Impossible de récupérer votre position actuelle.');
+          }
+          
           location = {
             latitude: currentLocation.coords.latitude,
             longitude: currentLocation.coords.longitude
           };
           
-          // Sauvegarder la localisation pour utilisation future
+          console.log("Localisation récupérée:", location);
+          
+          // Sauvegarder la localisation dans Firebase pour utilisation future
           await userService.updateUserLocation(
             currentUser.uid, 
             location.latitude, 
             location.longitude
           );
+          console.log("Localisation sauvegardée dans la base de données");
+        } catch (locationError) {
+          console.error("Erreur lors de l'accès à la géolocalisation:", locationError);
+          throw new Error("L'accès à votre position est nécessaire pour générer des recommandations d'irrigation précises.");
         }
+      } else {
+        // Utiliser les données de localisation de Firebase
+        console.log("Utilisation de la localisation stockée dans Firebase:", 
+          userData.location.latitude, userData.location.longitude);
+        location = {
+          latitude: userData.location.latitude,
+          longitude: userData.location.longitude
+        };
+        isLocalFromDB = true;
       }
       
-      // Récupérer les données météo
-      const weather = await weatherService.getWeatherData(
-        location.latitude,
-        location.longitude
-      );
+      if (!location) {
+        throw new Error("Impossible de déterminer votre localisation. Vérifiez les permissions ou essayez de mettre à jour votre profil.");
+      }
       
-      setWeatherData(weather);
+      // Récupérer les données météo en temps réel
+      console.log("Récupération des données météo pour la localisation:", location);
+      try {
+        const weather = await weatherService.getWeatherData(
+          location.latitude,
+          location.longitude,
+          isLocalFromDB
+        );
+        
+        if (!weather) {
+          throw new Error("Impossible de récupérer les données météo pour votre localisation.");
+        }
+        
+        console.log("Données météo récupérées:", 
+          `Température: ${weather.currentTemperature}°C, ` +
+          `Humidité: ${weather.currentHumidity}%, ` +
+          `Conditions: ${weather.weatherDescription}, ` +
+          `Localisation: ${weather.locationName}`
+        );
+        
+        // Vérifier si la localisation a un nom valide
+        if (!weather.locationName || weather.locationName === "Localisation inconnue") {
+          // Essayer de récupérer le nom de la localisation manuellement
+          try {
+            const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${location.latitude}&lon=${location.longitude}&zoom=10&accept-language=fr`,
+              {
+                headers: {
+                  'Accept': 'application/json',
+                  'User-Agent': 'SmartIrrigation/1.0'
+                }
+              }
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              if (data && data.address) {
+                // Utiliser le nom le plus précis disponible
+                const locationName = data.address.village || 
+                                     data.address.town || 
+                                     data.address.city || 
+                                     data.address.municipality ||
+                                     data.address.county ||
+                                     data.address.state;
+                
+                if (locationName) {
+                  weather.locationName = locationName;
+                  console.log("Nom de localisation mis à jour:", locationName);
+                }
+              }
+            }
+          } catch (nameError) {
+            console.error("Erreur lors de la récupération du nom de localisation:", nameError);
+            // Continuer sans interrompre le flux
+          }
+        }
+        
+        setWeatherData(weather);
+      } catch (weatherError) {
+        console.error("Erreur lors de la récupération des données météo:", weatherError);
+        throw new Error("Impossible de récupérer les données météo en temps réel. Veuillez vérifier votre connexion internet.");
+      }
       
     } catch (error: any) {
       console.error('Erreur lors du chargement des données:', error);
-      setError(error.message);
-      setWeatherError('Impossible de récupérer les données météo');
+      setError(error.message || "Une erreur s'est produite lors du chargement des données");
     } finally {
       setLoading(false);
       setWeatherLoading(false);
@@ -213,47 +307,117 @@ export default function IrrigationScreen() {
   // Générer une recommandation d'irrigation pour la culture sélectionnée
   const generateRecommendation = () => {
     try {
-      if (!weatherData || userCrops.length === 0) return;
+      if (!weatherData || userCrops.length === 0) {
+        console.log("Données météo ou cultures non disponibles, impossible de générer une recommandation");
+        return;
+      }
       
       const selectedCrop = userCrops[selectedCultureIndex];
+      console.log("Génération de recommandation pour la culture:", selectedCrop.name);
+      
+      // Vérifier que toutes les données nécessaires sont disponibles
+      if (!selectedCrop.plantingDate) {
+        console.error("Date de plantation manquante pour la culture", selectedCrop.name);
+        Alert.alert(
+          "Données incomplètes",
+          `La date de plantation pour ${selectedCrop.name} est manquante. Veuillez mettre à jour vos informations de culture.`
+        );
+        return;
+      }
+      
+      if (!selectedCrop.soilType) {
+        console.error("Type de sol manquant pour la culture", selectedCrop.name);
+        Alert.alert(
+          "Données incomplètes",
+          `Le type de sol pour ${selectedCrop.name} est manquant. Veuillez mettre à jour vos informations de culture.`
+        );
+        return;
+      }
+      
+      if (!selectedCrop.area || parseFloat(selectedCrop.area) <= 0) {
+        console.error("Superficie invalide pour la culture", selectedCrop.name);
+        Alert.alert(
+          "Données incomplètes",
+          `La superficie pour ${selectedCrop.name} est invalide. Veuillez mettre à jour vos informations de culture.`
+        );
+        return;
+      }
       
       // Convertir les données de culture au format attendu par le service
-      const cultureData: CultureData = convertToCultureData(selectedCrop.name);
+      const cultureData: CultureData = convertToCultureData(selectedCrop.name, selectedCrop.plantingDate);
       
       // Convertir les données de sol au format attendu par le service
       const solData: SolData = convertToSolData(selectedCrop.soilType);
       
+      // Vérifier les données météo
+      if (!weatherData.hourlyTemperatures || weatherData.hourlyTemperatures.length === 0) {
+        console.error("Données de température horaires manquantes");
+        Alert.alert(
+          "Données météo incomplètes",
+          "Impossible de générer une recommandation d'irrigation précise. Les données météo sont incomplètes."
+        );
+        return;
+      }
+      
+      if (weatherData.currentHumidity === undefined || weatherData.shortwave_radiation_sum === undefined) {
+        console.error("Données d'humidité ou de rayonnement solaire manquantes");
+        Alert.alert(
+          "Données météo incomplètes",
+          "Impossible de générer une recommandation d'irrigation précise. Certaines données météo essentielles sont manquantes."
+        );
+        return;
+      }
+      
       // Créer les données météo au format attendu par le service
-      const isRaining = weatherData.weatherDescription.toLowerCase().includes('pluie') || 
-                        weatherData.weatherDescription.toLowerCase().includes('bruine');
+      const isRaining = weatherData.weatherDescription?.toLowerCase().includes('pluie') || 
+                        weatherData.weatherDescription?.toLowerCase().includes('bruine');
       
-      const rainForecast = weatherData.nextRainHours.length > 0;
+      const rainForecast = weatherData.nextRainHours?.length > 0;
       
+      // Utiliser uniquement les données météo réelles, sans aucune valeur par défaut
       const weatherDataForRecommendation: WeatherData = {
         tMax: Math.max(...weatherData.hourlyTemperatures.slice(0, 24)),
         tMin: Math.min(...weatherData.hourlyTemperatures.slice(0, 24)),
-        rayonnement: 20, // Valeur approximative
+        rayonnement: weatherData.shortwave_radiation_sum,
         humidite: weatherData.currentHumidity,
         pluie: isRaining,
         pluiePrevue: rainForecast,
         heure: new Date().getHours(),
       };
       
-      // Convertir la superficie en nombre
-      const area = parseFloat(selectedCrop.area) || 100; // Valeur par défaut si non définie
+      console.log("Données météo pour recommandation:", JSON.stringify(weatherDataForRecommendation, null, 2));
       
-      // Générer la recommandation
-      const reco = recommendationService.genererRecommandation(
+      // Convertir la superficie en nombre
+      const area = parseFloat(selectedCrop.area);
+      
+      // Générer la recommandation avec uniquement des données réelles
+      const reco = genererRecommandation(
         cultureData,
         solData,
         weatherDataForRecommendation,
         area
       );
       
+      console.log("Recommandation générée:", JSON.stringify(reco, null, 2));
+      
+      // Vérifier que la recommandation a été générée correctement
+      if (!reco || reco.volume <= 0) {
+        console.error("La recommandation générée n'est pas valide");
+        Alert.alert(
+          "Erreur",
+          "Impossible de générer une recommandation d'irrigation valide avec les données disponibles."
+        );
+        return;
+      }
+      
       setRecommendation(reco);
       
     } catch (error: any) {
       console.error('Erreur lors de la génération de la recommandation:', error);
+      Alert.alert(
+        "Erreur",
+        `Impossible de générer une recommandation d'irrigation: ${error.message || "Erreur inconnue"}`
+      );
       setRecommendation(null);
     }
   };
@@ -287,7 +451,12 @@ export default function IrrigationScreen() {
       return (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>Chargement des données...</Text>
+          <Text style={styles.loadingText}>
+            {loading ? "Chargement des données utilisateur..." : "Récupération des données météo en temps réel..."}
+          </Text>
+          <Text style={styles.loadingSubtext}>
+            Nous récupérons les données pour générer des recommandations précises
+          </Text>
         </View>
       );
     }
@@ -298,8 +467,34 @@ export default function IrrigationScreen() {
           <Ionicons name="alert-circle" size={48} color={Colors.danger} />
           <Text style={styles.errorText}>{error}</Text>
           <Text style={styles.errorSubtext}>
-            Veuillez configurer vos cultures dans les paramètres de votre profil.
+            Les recommandations d'irrigation nécessitent des données actualisées.
           </Text>
+          <TouchableOpacity 
+            style={styles.refreshButton}
+            onPress={loadUserDataAndWeather}
+          >
+            <Ionicons name="refresh" size={20} color={Colors.white} />
+            <Text style={styles.refreshButtonText}>Réessayer</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    if (weatherError) {
+      return (
+        <View style={styles.errorContainer}>
+          <Ionicons name="cloud-offline" size={48} color={Colors.warning} />
+          <Text style={styles.errorText}>{weatherError}</Text>
+          <Text style={styles.errorSubtext}>
+            Les données météo en temps réel sont nécessaires pour les recommandations d'irrigation.
+          </Text>
+          <TouchableOpacity 
+            style={styles.refreshButton}
+            onPress={loadUserDataAndWeather}
+          >
+            <Ionicons name="refresh" size={20} color={Colors.white} />
+            <Text style={styles.refreshButtonText}>Réessayer</Text>
+          </TouchableOpacity>
         </View>
       );
     }
@@ -310,8 +505,15 @@ export default function IrrigationScreen() {
           <Ionicons name="leaf" size={48} color={Colors.primary} />
           <Text style={styles.errorText}>Aucune culture configurée</Text>
           <Text style={styles.errorSubtext}>
-            Veuillez configurer vos cultures dans les paramètres de votre profil.
+            Vous devez ajouter au moins une culture pour recevoir des recommandations d'irrigation.
           </Text>
+          <TouchableOpacity 
+            style={styles.refreshButton}
+            onPress={() => router.push('/(auth)/profile')}
+          >
+            <Ionicons name="add-circle" size={20} color={Colors.white} />
+            <Text style={styles.refreshButtonText}>Configurer mon profil</Text>
+          </TouchableOpacity>
         </View>
       );
     }
@@ -351,7 +553,18 @@ export default function IrrigationScreen() {
           <View style={styles.weatherContainer}>
             <View style={styles.weatherHeader}>
               <Ionicons name="location" size={16} color={Colors.darkGray} />
-              <Text style={styles.weatherLocation}>{weatherData.locationName}</Text>
+              <Text style={styles.weatherLocation}>
+                {weatherData.locationName || "Position actuelle"}
+              </Text>
+              {weatherData.isLocalFromDB ? (
+                <View style={styles.locationBadge}>
+                  <Text style={styles.locationBadgeText}>Enregistrée</Text>
+                </View>
+              ) : (
+                <View style={[styles.locationBadge, styles.locationBadgeLive]}>
+                  <Text style={styles.locationBadgeText}>Temps réel</Text>
+                </View>
+              )}
             </View>
             <View style={styles.weatherDetails}>
               <Ionicons 
@@ -361,6 +574,14 @@ export default function IrrigationScreen() {
               />
               <Text style={styles.weatherTemp}>{weatherData.currentTemperature}°C</Text>
               <Text style={styles.weatherDesc}>{weatherData.weatherDescription}</Text>
+            </View>
+            <View style={styles.weatherFooter}>
+              <Text style={styles.weatherFooterText}>
+                <Ionicons name="water-outline" size={14} color={Colors.darkGray} /> Humidité: {weatherData.currentHumidity}%
+              </Text>
+              <Text style={styles.weatherFooterText}>
+                <Ionicons name="time-outline" size={14} color={Colors.darkGray} /> Mis à jour à {new Date().toLocaleTimeString()}
+              </Text>
             </View>
           </View>
         )}
@@ -612,6 +833,13 @@ const styles = StyleSheet.create({
     fontFamily: 'OpenSans-Regular',
     color: Colors.darkGray,
   },
+  loadingSubtext: {
+    marginTop: 8,
+    fontSize: 14,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
+    textAlign: 'center',
+  },
   errorContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -631,6 +859,17 @@ const styles = StyleSheet.create({
     fontFamily: 'OpenSans-Regular',
     color: Colors.darkGray,
     textAlign: 'center',
+  },
+  refreshButton: {
+    backgroundColor: Colors.primary,
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  refreshButtonText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontFamily: 'Montserrat-Bold',
   },
   culturePicker: {
     marginBottom: 16,
@@ -848,5 +1087,33 @@ const styles = StyleSheet.create({
   },
   activeNavText: {
     color: Colors.primary,
+  },
+  locationBadge: {
+    backgroundColor: Colors.blue,
+    borderRadius: 8,
+    padding: 4,
+    marginLeft: 8,
+  },
+  locationBadgeText: {
+    fontSize: 12,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.white,
+  },
+  locationBadgeLive: {
+    backgroundColor: '#4CAF50',
+  },
+  weatherFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.05)',
+  },
+  weatherFooterText: {
+    fontSize: 12,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
   },
 }); 

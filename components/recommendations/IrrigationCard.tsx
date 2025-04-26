@@ -21,6 +21,7 @@ interface IrrigationCardProps {
   culture: string;
   sol: string;
   weatherIcon?: string;
+  plageHoraire?: string; // Nouvelle prop pour la plage horaire optimale
   onMarkComplete?: () => void;
 }
 
@@ -39,12 +40,13 @@ const IrrigationCard: React.FC<IrrigationCardProps> = ({
   culture,
   sol,
   weatherIcon = 'sunny',
+  plageHoraire,
   onMarkComplete,
 }) => {
   // Couleurs du dégradé en fonction du moment de la journée
   const gradientColors = moment === 'matin' 
-    ? [Colors.blue, '#B7E4F7'] 
-    : ['#4A6FA5', '#B7E4F7'];
+    ? [Colors.blue, '#B7E4F7'] as const
+    : ['#4A6FA5', '#B7E4F7'] as const;
 
   // Icône météo en fonction du type de temps
   const getWeatherIcon = () => {
@@ -85,15 +87,32 @@ const IrrigationCard: React.FC<IrrigationCardProps> = ({
         </View>
         
         <View style={styles.content}>
-          <Text style={styles.volumeText}>
-            {volume.toFixed(1)} L/m²
-          </Text>
+          <View style={styles.besoinsContainer}>
+            <Text style={styles.besoinsLabel}>Besoin en eau :</Text>
+            <Text style={styles.volumeText}>
+              {volume.toFixed(1)} L/m²
+            </Text>
+          </View>
           <Text style={styles.totalText}>
             ({totalVolume.toFixed(0)} L au total)
           </Text>
-          <Text style={styles.frequencyText}>
-            Tous les {frequency}
-          </Text>
+          
+          <View style={styles.frequenceContainer}>
+            <Text style={styles.frequenceLabel}>Fréquence :</Text>
+            <Text style={styles.frequencyText}>
+              Tous les {frequency}
+            </Text>
+          </View>
+          
+          {plageHoraire && (
+            <View style={styles.plageHoraireContainer}>
+              <Text style={styles.plageHoraireLabel}>Heure optimale :</Text>
+              <Text style={styles.plageHoraireText}>{plageHoraire}</Text>
+              <View style={styles.recommendedTag}>
+                <Text style={styles.recommendedTagText}>Recommandé</Text>
+              </View>
+            </View>
+          )}
 
           {constraint ? (
             <View style={styles.constraintContainer}>
@@ -103,6 +122,12 @@ const IrrigationCard: React.FC<IrrigationCardProps> = ({
           ) : (
             <Text style={styles.messageText}>{message}</Text>
           )}
+          
+          <View style={styles.dateContainer}>
+            <Text style={styles.dateText}>
+              <Ionicons name="calendar-outline" size={12} color="#FFFFFF" /> Recommandation générée le {new Date().toLocaleDateString()}
+            </Text>
+          </View>
         </View>
 
         {onMarkComplete && (
@@ -159,23 +184,59 @@ const styles = StyleSheet.create({
   content: {
     marginVertical: 8,
   },
+  besoinsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  besoinsLabel: {
+    fontSize: 16,
+    fontFamily: 'OpenSans-Regular',
+    color: '#FFFFFF',
+    marginRight: 8,
+  },
   volumeText: {
     fontSize: 24,
     fontFamily: 'Montserrat-Bold',
     color: '#FFFFFF',
-    marginBottom: 4,
   },
   totalText: {
     fontSize: 16,
     fontFamily: 'OpenSans-Regular',
     color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  frequenceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 6,
   },
-  frequencyText: {
+  frequenceLabel: {
     fontSize: 16,
     fontFamily: 'OpenSans-Regular',
     color: '#FFFFFF',
+    marginRight: 8,
+  },
+  frequencyText: {
+    fontSize: 16,
+    fontFamily: 'OpenSans-SemiBold',
+    color: '#FFFFFF',
+  },
+  plageHoraireContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  plageHoraireLabel: {
+    fontSize: 16,
+    fontFamily: 'OpenSans-Regular',
+    color: '#FFFFFF',
+    marginRight: 8,
+  },
+  plageHoraireText: {
+    fontSize: 16,
+    fontFamily: 'OpenSans-SemiBold',
+    color: '#FFFFFF',
   },
   messageText: {
     fontSize: 14,
@@ -214,6 +275,27 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
     fontFamily: 'Montserrat-Bold',
+  },
+  recommendedTag: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    padding: 4,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  recommendedTagText: {
+    fontSize: 12,
+    fontFamily: 'OpenSans-Regular',
+    color: '#FFFFFF',
+  },
+  dateContainer: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  dateText: {
+    fontSize: 14,
+    fontFamily: 'OpenSans-Regular',
+    color: '#FFFFFF',
   },
 });
 
