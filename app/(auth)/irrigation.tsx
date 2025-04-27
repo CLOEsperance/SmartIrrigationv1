@@ -16,6 +16,7 @@ import { router } from 'expo-router';
 import Colors from '../../constants/Colors';
 import { useAuth } from '../../contexts/AuthContext';
 import userService, { UserData } from '../../services/user.service';
+import profileService, { UserLocation } from '../../services/profileService';
 import weatherService, { FormattedWeatherData } from '../../services/weather.service';
 import { 
   CultureData, 
@@ -58,6 +59,9 @@ export default function IrrigationScreen() {
   const [recommendation, setRecommendation] = useState<Recommandation | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(true);
   const [weatherError, setWeatherError] = useState<string | null>(null);
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+  const [locationLoading, setLocationLoading] = useState(true);
+  const [locationError, setLocationError] = useState<string | null>(null);
   
   // Obtenir l'utilisateur actuellement connecté
   const { currentUser } = useAuth();
@@ -116,15 +120,20 @@ export default function IrrigationScreen() {
     },
   ]);
 
-  // Charger les données utilisateur et météo
+  // Charger la localisation de l'utilisateur
   useEffect(() => {
     if (currentUser) {
-      console.log("Chargement des données utilisateur et météo");
-      loadUserDataAndWeather();
-    } else {
-      console.log("Utilisateur non connecté, impossible de charger les données");
+      loadUserLocation();
     }
   }, [currentUser]);
+
+  // Charger les données utilisateur et météo une fois la localisation obtenue
+  useEffect(() => {
+    if (currentUser && userLocation) {
+      console.log("Localisation obtenue, chargement des données utilisateur et météo");
+      loadUserDataAndWeather();
+    }
+  }, [currentUser, userLocation]);
 
   // Générer une recommandation chaque fois que l'utilisateur change de culture sélectionnée
   // ou que les données météo changent
@@ -137,6 +146,35 @@ export default function IrrigationScreen() {
     }
   }, [selectedCultureIndex, weatherData, userCrops]);
 
+  // Charger la localisation de l'utilisateur
+  const loadUserLocation = async () => {
+    try {
+      setLocationLoading(true);
+      setLocationError(null);
+      
+      if (!currentUser) {
+        throw new Error('Utilisateur non connecté');
+      }
+      
+      console.log("Récupération de la localisation pour l'utilisateur:", currentUser.uid);
+      
+      // Récupérer la localisation à partir du profil
+      const location = await profileService.getUserLocation(currentUser.uid);
+      
+      if (!location) {
+        throw new Error('Localisation non disponible dans votre profil. Veuillez activer la géolocalisation.');
+      }
+      
+      console.log("Localisation récupérée:", location);
+      setUserLocation(location);
+    } catch (error: any) {
+      console.error("Erreur lors de la récupération de la localisation:", error);
+      setLocationError(error.message);
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
   // Charger les données utilisateur à partir de Firestore et les données météo
   const loadUserDataAndWeather = async () => {
     try {
@@ -147,6 +185,10 @@ export default function IrrigationScreen() {
       
       if (!currentUser) {
         throw new Error('Utilisateur non connecté');
+      }
+      
+      if (!userLocation) {
+        throw new Error('Localisation non disponible');
       }
       
       console.log("Récupération des données pour l'utilisateur:", currentUser.uid);
@@ -177,68 +219,13 @@ export default function IrrigationScreen() {
       
       setUserCrops(cropDetails);
       
-      // Récupérer les coordonnées de l'utilisateur pour la météo
-      let location;
-      let isLocalFromDB = false;
-      
-      if (!userData.location || !userData.location.latitude || !userData.location.longitude) {
-        // Si les données de localisation ne sont pas dans Firebase, demander la permission pour les obtenir
-        try {
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          
-          if (status !== 'granted') {
-            throw new Error('La permission de localisation est nécessaire pour des recommandations précises.');
-          }
-          
-          console.log("Permission accordée, récupération de la localisation actuelle");
-          const currentLocation = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High
-          });
-          
-          if (!currentLocation || !currentLocation.coords) {
-            throw new Error('Impossible de récupérer votre position actuelle.');
-          }
-          
-          location = {
-            latitude: currentLocation.coords.latitude,
-            longitude: currentLocation.coords.longitude
-          };
-          
-          console.log("Localisation récupérée:", location);
-          
-          // Sauvegarder la localisation dans Firebase pour utilisation future
-          await userService.updateUserLocation(
-            currentUser.uid, 
-            location.latitude, 
-            location.longitude
-          );
-          console.log("Localisation sauvegardée dans la base de données");
-        } catch (locationError) {
-          console.error("Erreur lors de l'accès à la géolocalisation:", locationError);
-          throw new Error("L'accès à votre position est nécessaire pour générer des recommandations d'irrigation précises.");
-        }
-      } else {
-        // Utiliser les données de localisation de Firebase
-        console.log("Utilisation de la localisation stockée dans Firebase:", 
-          userData.location.latitude, userData.location.longitude);
-        location = {
-          latitude: userData.location.latitude,
-          longitude: userData.location.longitude
-        };
-        isLocalFromDB = true;
-      }
-      
-      if (!location) {
-        throw new Error("Impossible de déterminer votre localisation. Vérifiez les permissions ou essayez de mettre à jour votre profil.");
-      }
-      
       // Récupérer les données météo en temps réel
-      console.log("Récupération des données météo pour la localisation:", location);
+      console.log("Récupération des données météo pour la localisation:", userLocation);
       try {
         const weather = await weatherService.getWeatherData(
-          location.latitude,
-          location.longitude,
-          isLocalFromDB
+          userLocation.latitude,
+          userLocation.longitude,
+          true // La localisation provient de la base de données
         );
         
         if (!weather) {
@@ -247,60 +234,21 @@ export default function IrrigationScreen() {
         
         console.log("Données météo récupérées:", 
           `Température: ${weather.currentTemperature}°C, ` +
-          `Humidité: ${weather.currentHumidity}%, ` +
-          `Conditions: ${weather.weatherDescription}, ` +
-          `Localisation: ${weather.locationName}`
-        );
-        
-        // Vérifier si la localisation a un nom valide
-        if (!weather.locationName || weather.locationName === "Localisation inconnue") {
-          // Essayer de récupérer le nom de la localisation manuellement
-          try {
-            const response = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${location.latitude}&lon=${location.longitude}&zoom=10&accept-language=fr`,
-              {
-                headers: {
-                  'Accept': 'application/json',
-                  'User-Agent': 'SmartIrrigation/1.0'
-                }
-              }
-            );
-            
-            if (response.ok) {
-              const data = await response.json();
-              if (data && data.address) {
-                // Utiliser le nom le plus précis disponible
-                const locationName = data.address.village || 
-                                     data.address.town || 
-                                     data.address.city || 
-                                     data.address.municipality ||
-                                     data.address.county ||
-                                     data.address.state;
-                
-                if (locationName) {
-                  weather.locationName = locationName;
-                  console.log("Nom de localisation mis à jour:", locationName);
-                }
-              }
-            }
-          } catch (nameError) {
-            console.error("Erreur lors de la récupération du nom de localisation:", nameError);
-            // Continuer sans interrompre le flux
-          }
-        }
+          `Humidité: ${weather.currentHumidity}%`);
         
         setWeatherData(weather);
-      } catch (weatherError) {
+        setWeatherLoading(false);
+      } catch (weatherError: any) {
         console.error("Erreur lors de la récupération des données météo:", weatherError);
-        throw new Error("Impossible de récupérer les données météo en temps réel. Veuillez vérifier votre connexion internet.");
+        setWeatherError(weatherError.message);
+        setWeatherLoading(false);
       }
       
-    } catch (error: any) {
-      console.error('Erreur lors du chargement des données:', error);
-      setError(error.message || "Une erreur s'est produite lors du chargement des données");
-    } finally {
       setLoading(false);
-      setWeatherLoading(false);
+    } catch (error: any) {
+      console.error("Erreur lors du chargement des données:", error);
+      setError(error.message);
+      setLoading(false);
     }
   };
 
@@ -446,6 +394,104 @@ export default function IrrigationScreen() {
     );
   };
 
+  // Rendu de l'en-tête avec la localisation
+  const renderLocationHeader = () => {
+    if (locationLoading) {
+      return (
+        <View style={styles.locationHeader}>
+          <ActivityIndicator size="small" color={Colors.primary} />
+          <Text style={styles.locationText}>Récupération de la position...</Text>
+        </View>
+      );
+    }
+
+    if (locationError || !userLocation) {
+      return (
+        <AlertBanner 
+          message={locationError || "Impossible de récupérer votre position. Vérifiez vos autorisations de géolocalisation."}
+          type="danger"
+        />
+      );
+    }
+
+    return (
+      <View style={styles.locationHeader}>
+        <View style={styles.locationInfo}>
+          <Ionicons name="location" size={20} color={Colors.primary} />
+          <View style={styles.locationTextContainer}>
+            <Text style={styles.locationText}>{userLocation.regionName}</Text>
+            {userLocation.detailedLocation && userLocation.detailedLocation !== userLocation.regionName && (
+              <Text style={styles.locationDetailText}>{userLocation.detailedLocation}</Text>
+            )}
+          </View>
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>Enregistrée</Text>
+          </View>
+        </View>
+        <TouchableOpacity 
+          style={styles.refreshLocationButton}
+          onPress={refreshLocation}
+          disabled={locationLoading}
+        >
+          <Ionicons 
+            name="refresh" 
+            size={16} 
+            color={locationLoading ? Colors.darkGray : Colors.primary} 
+          />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  // Rafraîchir la position de l'utilisateur
+  const refreshLocation = async () => {
+    try {
+      if (!currentUser) return;
+      
+      setLocationLoading(true);
+      setLocationError(null);
+      
+      // Utiliser le service de profil pour rafraîchir la position
+      const updatedLocation = await profileService.refreshUserLocation(currentUser.uid);
+      
+      if (!updatedLocation) {
+        throw new Error("Impossible de mettre à jour votre position");
+      }
+      
+      setUserLocation(updatedLocation);
+      
+      // Rafraîchir également les données météo avec la nouvelle position
+      if (updatedLocation) {
+        try {
+          const weather = await weatherService.getWeatherData(
+            updatedLocation.latitude,
+            updatedLocation.longitude,
+            true
+          );
+          
+          if (weather) {
+            setWeatherData(weather);
+            setWeatherError(null);
+            
+            // Régénérer la recommandation avec les nouvelles données météo
+            if (userCrops.length > 0) {
+              generateRecommendation();
+            }
+          }
+        } catch (weatherError: any) {
+          console.error("Erreur lors de la mise à jour des données météo:", weatherError);
+          // Ne pas bloquer le processus si la météo échoue
+        }
+      }
+      
+    } catch (error: any) {
+      console.error("Erreur lors du rafraîchissement de la position:", error);
+      setLocationError(error.message);
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
   const renderBesoinsTab = () => {
     if (loading || weatherLoading) {
       return (
@@ -545,43 +591,6 @@ export default function IrrigationScreen() {
                   </Text>
                 </TouchableOpacity>
               ))}
-            </View>
-          </View>
-        )}
-
-        {weatherData && (
-          <View style={styles.weatherContainer}>
-            <View style={styles.weatherHeader}>
-              <Ionicons name="location" size={16} color={Colors.darkGray} />
-              <Text style={styles.weatherLocation}>
-                {weatherData.locationName || "Position actuelle"}
-              </Text>
-              {weatherData.isLocalFromDB ? (
-                <View style={styles.locationBadge}>
-                  <Text style={styles.locationBadgeText}>Enregistrée</Text>
-                </View>
-              ) : (
-                <View style={[styles.locationBadge, styles.locationBadgeLive]}>
-                  <Text style={styles.locationBadgeText}>Temps réel</Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.weatherDetails}>
-              <Ionicons 
-                name={weatherData.isNight ? "moon" : "sunny"} 
-                size={24} 
-                color={Colors.primary} 
-              />
-              <Text style={styles.weatherTemp}>{weatherData.currentTemperature}°C</Text>
-              <Text style={styles.weatherDesc}>{weatherData.weatherDescription}</Text>
-            </View>
-            <View style={styles.weatherFooter}>
-              <Text style={styles.weatherFooterText}>
-                <Ionicons name="water-outline" size={14} color={Colors.darkGray} /> Humidité: {weatherData.currentHumidity}%
-              </Text>
-              <Text style={styles.weatherFooterText}>
-                <Ionicons name="time-outline" size={14} color={Colors.darkGray} /> Mis à jour à {new Date().toLocaleTimeString()}
-              </Text>
             </View>
           </View>
         )}
@@ -688,17 +697,16 @@ export default function IrrigationScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       
-      {/* Header */}
-      <View style={styles.header}>
+      <View style={styles.screenHeader}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
           <Ionicons name="chevron-back" size={24} color={Colors.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Irrigation</Text>
+        <Text style={styles.screenTitle}>Irrigation</Text>
         <TouchableOpacity 
           style={styles.settingsButton}
           onPress={() => router.push('/(auth)/settings')}
@@ -706,15 +714,26 @@ export default function IrrigationScreen() {
           <Ionicons name="settings-outline" size={24} color={Colors.white} />
         </TouchableOpacity>
       </View>
-
-      {/* Tabs */}
-      <View style={styles.tabsContainer}>
+      
+      {/* En-tête de localisation */}
+      {renderLocationHeader()}
+      
+      {/* Message d'erreur global si nécessaire */}
+      {error && (
+        <AlertBanner 
+          message={error}
+          type="danger"
+        />
+      )}
+      
+      {/* Onglets */}
+      <View style={styles.tabContainer}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'besoins' && styles.activeTab]}
           onPress={() => setActiveTab('besoins')}
         >
           <Text style={[styles.tabText, activeTab === 'besoins' && styles.activeTabText]}>
-            Besoins
+            Besoins en eau
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -726,11 +745,11 @@ export default function IrrigationScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-
-      {/* Content */}
+      
+      {/* Contenu de l'onglet */}
       {activeTab === 'besoins' ? renderBesoinsTab() : renderHistoriqueTab()}
 
-      {/* Navigation Bar */}
+      {/* Barre de navigation restaurée */}
       <View style={styles.navbar}>
         <TouchableOpacity 
           style={styles.navItem} 
@@ -767,7 +786,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.lightGray,
   },
-  header: {
+  screenHeader: {
     backgroundColor: Colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
@@ -782,7 +801,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  headerTitle: {
+  screenTitle: {
     fontSize: 18,
     fontFamily: 'Montserrat-Bold',
     color: Colors.white,
@@ -793,7 +812,56 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  tabsContainer: {
+  locationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: Colors.light,
+    borderRadius: 8,
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  locationInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  locationTextContainer: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  locationText: {
+    fontSize: 16,
+    fontFamily: 'OpenSans-SemiBold',
+    color: Colors.text,
+  },
+  locationDetailText: {
+    fontSize: 12,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
+    marginTop: 2,
+  },
+  badge: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  badgeText: {
+    color: Colors.white,
+    fontSize: 12,
+    fontFamily: 'OpenSans-SemiBold',
+  },
+  refreshLocationButton: {
+    padding: 8,
+    marginLeft: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.lightGray,
+  },
+  tabContainer: {
     flexDirection: 'row',
     backgroundColor: Colors.white,
   },
@@ -862,7 +930,8 @@ const styles = StyleSheet.create({
   },
   refreshButton: {
     backgroundColor: Colors.primary,
-    padding: 10,
+    margin: 20,
+    padding: 15,
     borderRadius: 8,
     alignItems: 'center',
   },
@@ -1066,28 +1135,6 @@ const styles = StyleSheet.create({
     width: 40,
     alignItems: 'center',
   },
-  navbar: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    backgroundColor: Colors.white,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: Colors.lightGray,
-  },
-  navItem: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  navText: {
-    fontSize: 12,
-    fontFamily: 'OpenSans-Regular',
-    color: Colors.darkGray,
-    marginTop: 4,
-  },
-  activeNavText: {
-    color: Colors.primary,
-  },
   locationBadge: {
     backgroundColor: Colors.blue,
     borderRadius: 8,
@@ -1115,5 +1162,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'OpenSans-Regular',
     color: Colors.darkGray,
+  },
+  navbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: Colors.lightGray,
+  },
+  navItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  navText: {
+    fontSize: 12,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
+    marginTop: 4,
+  },
+  activeNavText: {
+    color: Colors.primary,
   },
 }); 

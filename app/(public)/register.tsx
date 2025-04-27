@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { FontAwesome } from '@expo/vector-icons';
 import authService from '../../services/auth.service';
 import userService from '../../services/user.service';
+import profileService from '../../services/profileService';
 
 export default function RegisterScreen() {
   const [formData, setFormData] = useState({
@@ -70,6 +71,42 @@ export default function RegisterScreen() {
           formData.username,
           formData.email
         );
+
+        // Récupération de la position actuelle
+        try {
+          const location = await profileService.getCurrentDeviceLocation();
+          
+          // Obtenir des informations détaillées sur la localisation à partir des coordonnées
+          const locationDetails = await profileService.reverseGeocode(
+            location.latitude,
+            location.longitude
+          );
+          
+          // Mise à jour de la localisation dans le profil utilisateur
+          await userService.updateUserLocation(
+            userCredential.user.uid,
+            location.latitude,
+            location.longitude,
+            locationDetails.primaryName,
+            locationDetails.detailedName
+          );
+          
+          console.log('Localisation enregistrée:', 
+            location.latitude, 
+            location.longitude, 
+            locationDetails.primaryName, 
+            `(${locationDetails.detailedName})`
+          );
+        } catch (locationError: any) {
+          console.error('Erreur lors de la récupération de la position:', locationError);
+          // Ne pas bloquer l'inscription si la géolocalisation échoue
+          // L'utilisateur pourra configurer sa position plus tard
+          Alert.alert(
+            "Avertissement",
+            "Impossible d'accéder à votre position. Certaines fonctionnalités de l'application nécessitent l'accès à votre position géographique.",
+            [{ text: "OK" }]
+          );
+        }
       }
       
       // Redirection vers l'écran de configuration de la langue

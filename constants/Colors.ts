@@ -13,8 +13,10 @@ const Colors = {
   
   // Couleurs neutres
   white: '#FFFFFF', // Blanc - Arrière-plan principal
+  light: '#F8F9FA', // Blanc cassé - Fond clair pour les sections
   lightGray: '#F0F0F0', // Gris clair - Séparateurs et zones inactives
   darkGray: '#555555', // Gris foncé - Texte principal
+  text: '#333333', // Couleur standard pour le texte
   
   // Couleurs fonctionnelles
   danger: '#f44336', // Rouge - Erreurs et actions destructives

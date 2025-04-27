@@ -20,6 +20,7 @@ export interface UserData {
     latitude: number;
     longitude: number;
     region?: string;
+    detailedLocation?: string;
   };
   crops?: Array<{
     id: string;
@@ -88,13 +89,15 @@ class UserService {
    * @param latitude Latitude
    * @param longitude Longitude
    * @param region Région (optionnel)
+   * @param detailedLocation Localisation détaillée (optionnel)
    * @returns Une promesse
    */
   async updateUserLocation(
     userId: string, 
     latitude: number, 
     longitude: number, 
-    region?: string
+    region?: string,
+    detailedLocation?: string
   ): Promise<void> {
     try {
       const userRef = doc(db, 'users', userId);
@@ -102,7 +105,8 @@ class UserService {
         location: {
           latitude,
           longitude,
-          region
+          region,
+          detailedLocation
         },
         updatedAt: new Date()
       });

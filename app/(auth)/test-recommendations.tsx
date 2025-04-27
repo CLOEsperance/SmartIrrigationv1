@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import RecommendationsTester from '../../components/tools/RecommendationsTester';
+import RecommendationsTester from '@/components/tools/RecommendationsTester';
 
 /**
  * Écran de test pour le débogage et la validation des recommandations
