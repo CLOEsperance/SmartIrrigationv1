@@ -344,6 +344,36 @@ class WeatherService {
     // Gradient nuit étoilée
     return ['#1a1b4b', '#090a2a'];
   }
+
+  async getCurrentWeather(): Promise<FormattedWeatherData> {
+    // TODO: Implémenter la récupération réelle des données météo depuis l'API
+    // Pour l'instant, retourner des données de démonstration
+    return {
+      currentTemperature: 36,
+      currentHumidity: 85,
+      currentWeatherCode: 3,
+      forecastHours: ["06:00", "07:00", "08:00", "09:00", "10:00", "11:00"],
+      hourlyTemperatures: [26, 27, 29, 32, 34, 35],
+      hourlyHumidity: [80, 78, 75, 70, 68, 65],
+      hourlyPrecipitation: [0, 0, 0, 0, 0, 0],
+      weatherDescription: "Partiellement nuageux",
+      nextRainHours: ["14:00", "15:00", "16:00"],
+      locationName: "Porto-Novo, Bénin",
+      weatherIcon: "partly-sunny",
+      backgroundGradient: ['#4A90E2', '#87CEEB'],
+      isNight: false,
+      cloudCover: 50,
+      windSpeed: 10,
+      windDirection: 180,
+      shortwave_radiation_sum: 22.5,
+      dailyForecast: {
+        maxTemperatures: [36, 34, 35, 33, 34, 36, 35],
+        minTemperatures: [24, 23, 24, 23, 22, 23, 24],
+        precipitationSum: [0, 5, 10, 2, 0, 0, 3],
+        precipitationProbability: [10, 60, 80, 40, 20, 10, 30]
+      }
+    };
+  }
 }
 
 // Exporter une instance du service

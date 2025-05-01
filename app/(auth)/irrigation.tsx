@@ -9,13 +9,15 @@ import {
   SafeAreaView,
   ActivityIndicator,
   Alert,
+  Dimensions,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import Colors from '../../constants/Colors';
 import { useAuth } from '../../contexts/AuthContext';
-import userService, { UserData } from '../../services/user.service';
+import userService, { UserData, IrrigationHistoryDisplay } from '../../services/user.service';
 import profileService, { UserLocation } from '../../services/profileService';
 import weatherService, { FormattedWeatherData } from '../../services/weather.service';
 import { 
@@ -30,15 +32,12 @@ import {
 import IrrigationCard from '../../components/recommendations/IrrigationCard';
 import AlertBanner from '../../components/recommendations/AlertBanner';
 import * as Location from 'expo-location';
+import Animated, { FadeInUp, FadeInDown } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type TabType = 'besoins' | 'historique';
-
-interface IrrigationHistory {
-  date: string;
-  culture: string;
-  quantity: string;
-  isCompleted: boolean;
-}
 
 interface CropDetails {
   id: string;
@@ -50,6 +49,7 @@ interface CropDetails {
 }
 
 export default function IrrigationScreen() {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<TabType>('besoins');
   const [selectedCultureIndex, setSelectedCultureIndex] = useState(0);
   const [userCrops, setUserCrops] = useState<CropDetails[]>([]);
@@ -62,6 +62,9 @@ export default function IrrigationScreen() {
   const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
   const [locationLoading, setLocationLoading] = useState(true);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [irrigationHistory, setIrrigationHistory] = useState<IrrigationHistoryDisplay[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   
   // Obtenir l'utilisateur actuellement connecté
   const { currentUser } = useAuth();
@@ -74,51 +77,6 @@ export default function IrrigationScreen() {
     // Valeur par défaut si l'image n'est pas trouvée
     'default': require('../../assets/images/culture_tomate.jpg.png')
   };
-
-  const [irrigationHistory] = useState<IrrigationHistory[]>([
-    {
-      date: '15/05/2023',
-      culture: 'Tomate',
-      quantity: '2.5L/m²',
-      isCompleted: true,
-    },
-    {
-      date: '14/05/2023',
-      culture: 'Tomate',
-      quantity: '2.5L/m²',
-      isCompleted: true,
-    },
-    {
-      date: '13/05/2023',
-      culture: 'Tomate',
-      quantity: '2.5L/m²',
-      isCompleted: false,
-    },
-    {
-      date: '12/05/2023',
-      culture: 'Tomate',
-      quantity: '2.5L/m²',
-      isCompleted: true,
-    },
-    {
-      date: '11/05/2023',
-      culture: 'Tomate',
-      quantity: '2.5L/m²',
-      isCompleted: true,
-    },
-    {
-      date: '10/05/2023',
-      culture: 'Tomate',
-      quantity: '2.5L/m²',
-      isCompleted: false,
-    },
-    {
-      date: '09/05/2023',
-      culture: 'Tomate',
-      quantity: '2.5L/m²',
-      isCompleted: true,
-    },
-  ]);
 
   // Charger la localisation de l'utilisateur
   useEffect(() => {
@@ -135,6 +93,13 @@ export default function IrrigationScreen() {
     }
   }, [currentUser, userLocation]);
 
+  // Charger l'historique d'irrigation
+  useEffect(() => {
+    if (currentUser) {
+      loadIrrigationHistory();
+    }
+  }, [currentUser]);
+
   // Générer une recommandation chaque fois que l'utilisateur change de culture sélectionnée
   // ou que les données météo changent
   useEffect(() => {
@@ -145,6 +110,36 @@ export default function IrrigationScreen() {
       console.log("Données incomplètes pour générer une recommandation");
     }
   }, [selectedCultureIndex, weatherData, userCrops]);
+
+  // Effect pour recharger l'historique lorsqu'on passe à l'onglet historique
+  useEffect(() => {
+    if (activeTab === 'historique' && currentUser) {
+      loadIrrigationHistory();
+    }
+  }, [activeTab, currentUser]);
+
+  // Charger l'historique d'irrigation
+  const loadIrrigationHistory = async () => {
+    try {
+      if (!currentUser) {
+        throw new Error('Utilisateur non connecté');
+      }
+      
+      setHistoryLoading(true);
+      setHistoryError(null);
+      
+      // Récupérer l'historique d'irrigation des 30 derniers jours
+      const history = await userService.getIrrigationHistory(currentUser.uid, 30);
+      setIrrigationHistory(history);
+      
+      console.log(`Historique d'irrigation chargé: ${history.length} entrées`);
+    } catch (error: any) {
+      console.error("Erreur lors du chargement de l'historique d'irrigation:", error);
+      setHistoryError(error.message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   // Charger la localisation de l'utilisateur
   const loadUserLocation = async () => {
@@ -371,7 +366,14 @@ export default function IrrigationScreen() {
   };
 
   // Marquer une recommandation comme complétée
-  const handleMarkComplete = () => {
+  const handleMarkComplete = async () => {
+    if (!currentUser || !recommendation || selectedCultureIndex >= userCrops.length) {
+      Alert.alert("Erreur", "Impossible de compléter cette action pour le moment");
+      return;
+    }
+    
+    const selectedCrop = userCrops[selectedCultureIndex];
+    
     Alert.alert(
       "Irrigation effectuée",
       "Voulez-vous marquer cette irrigation comme effectuée?",
@@ -382,12 +384,34 @@ export default function IrrigationScreen() {
         },
         {
           text: "Confirmer",
-          onPress: () => {
+          onPress: async () => {
+            try {
+              // Ajouter l'irrigation à l'historique
+              await userService.addIrrigationHistory(currentUser.uid, {
+                date: new Date(),
+                culture: selectedCrop.name,
+                volume: recommendation.volume,
+                totalVolume: recommendation.total,
+                completed: true
+              });
+              
+              // Recharger l'historique pour afficher la nouvelle entrée
+              await loadIrrigationHistory();
+              
+              // Afficher une confirmation
             Alert.alert(
               "Parfait!",
-              "Cette irrigation a été marquée comme effectuée",
+                "Cette irrigation a été marquée comme effectuée et ajoutée à votre historique",
+                [{ text: "OK" }]
+              );
+            } catch (error: any) {
+              console.error("Erreur lors de l'enregistrement de l'irrigation:", error);
+              Alert.alert(
+                "Erreur",
+                "Impossible d'enregistrer cette irrigation: " + error.message,
               [{ text: "OK" }]
             );
+            }
           }
         }
       ]
@@ -492,10 +516,27 @@ export default function IrrigationScreen() {
     }
   };
 
+  // Fonction utilitaire pour obtenir l'icône appropriée
+  const getCultureIcon = (stage: string) => {
+    switch (stage) {
+      case 'leaf':
+        return 'leaf';
+      case 'sprout':
+        return 'sprout';
+      case 'fruit-tomato':
+        return 'fruit-cherries';
+      default:
+        return 'sprout';
+    }
+  };
+
   const renderBesoinsTab = () => {
     if (loading || weatherLoading) {
       return (
-        <View style={styles.loadingContainer}>
+        <Animated.View 
+          entering={FadeInUp.delay(200)} 
+          style={styles.loadingContainer}
+        >
           <ActivityIndicator size="large" color={Colors.primary} />
           <Text style={styles.loadingText}>
             {loading ? "Chargement des données utilisateur..." : "Récupération des données météo en temps réel..."}
@@ -503,75 +544,117 @@ export default function IrrigationScreen() {
           <Text style={styles.loadingSubtext}>
             Nous récupérons les données pour générer des recommandations précises
           </Text>
-        </View>
-      );
-    }
-    
-    if (error) {
-      return (
-        <View style={styles.errorContainer}>
-          <Ionicons name="alert-circle" size={48} color={Colors.danger} />
-          <Text style={styles.errorText}>{error}</Text>
-          <Text style={styles.errorSubtext}>
-            Les recommandations d'irrigation nécessitent des données actualisées.
-          </Text>
-          <TouchableOpacity 
-            style={styles.refreshButton}
-            onPress={loadUserDataAndWeather}
-          >
-            <Ionicons name="refresh" size={20} color={Colors.white} />
-            <Text style={styles.refreshButtonText}>Réessayer</Text>
-          </TouchableOpacity>
-        </View>
+        </Animated.View>
       );
     }
 
-    if (weatherError) {
+    if (error) {
       return (
-        <View style={styles.errorContainer}>
-          <Ionicons name="cloud-offline" size={48} color={Colors.warning} />
-          <Text style={styles.errorText}>{weatherError}</Text>
-          <Text style={styles.errorSubtext}>
-            Les données météo en temps réel sont nécessaires pour les recommandations d'irrigation.
-          </Text>
-          <TouchableOpacity 
-            style={styles.refreshButton}
-            onPress={loadUserDataAndWeather}
+        <Animated.View 
+          entering={FadeInUp.delay(200)} 
+          style={styles.errorContainer}
+        >
+          <LinearGradient
+            colors={['#ffebee', '#ffcdd2']}
+            style={styles.errorGradient}
           >
-            <Ionicons name="refresh" size={20} color={Colors.white} />
-            <Text style={styles.refreshButtonText}>Réessayer</Text>
-          </TouchableOpacity>
-        </View>
+            <Ionicons name="alert-circle" size={48} color={Colors.danger} />
+            <Text style={styles.errorText}>{error}</Text>
+            <Text style={styles.errorSubtext}>
+              Les recommandations d'irrigation nécessitent des données actualisées.
+            </Text>
+            <TouchableOpacity 
+              style={styles.refreshButton}
+              onPress={loadUserDataAndWeather}
+            >
+              <Ionicons name="refresh" size={20} color={Colors.white} />
+              <Text style={styles.refreshButtonText}>Réessayer</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        </Animated.View>
       );
     }
-    
+
     if (userCrops.length === 0) {
       return (
-        <View style={styles.errorContainer}>
-          <Ionicons name="leaf" size={48} color={Colors.primary} />
-          <Text style={styles.errorText}>Aucune culture configurée</Text>
-          <Text style={styles.errorSubtext}>
-            Vous devez ajouter au moins une culture pour recevoir des recommandations d'irrigation.
-          </Text>
-          <TouchableOpacity 
-            style={styles.refreshButton}
-            onPress={() => router.push('/(auth)/profile')}
+        <Animated.View 
+          entering={FadeInUp.delay(200)} 
+          style={styles.errorContainer}
+        >
+          <LinearGradient
+            colors={['#e8f5e9', '#c8e6c9']}
+            style={styles.errorGradient}
           >
-            <Ionicons name="add-circle" size={20} color={Colors.white} />
-            <Text style={styles.refreshButtonText}>Configurer mon profil</Text>
-          </TouchableOpacity>
-        </View>
+            <Ionicons name="leaf" size={48} color={Colors.primary} />
+            <Text style={styles.errorText}>Aucune culture configurée</Text>
+            <Text style={styles.errorSubtext}>
+              Vous devez ajouter au moins une culture pour recevoir des recommandations d'irrigation.
+            </Text>
+            <TouchableOpacity 
+              style={styles.refreshButton}
+              onPress={() => router.push('/(auth)/profile')}
+            >
+              <Ionicons name="add-circle" size={20} color={Colors.white} />
+              <Text style={styles.refreshButtonText}>Configurer mon profil</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        </Animated.View>
       );
     }
-    
+
     const selectedCulture = userCrops[selectedCultureIndex];
-    
+
     return (
       <ScrollView style={styles.tabContent}>
+        {weatherError && (
+          <AlertBanner
+            message="Impossible de récupérer les données météo actuelles. Les recommandations pourraient ne pas être précises."
+            type="warning"
+          />
+        )}
+
+        {/* En-tête avec météo */}
+        <Animated.View 
+          entering={FadeInDown.delay(200)} 
+          style={styles.weatherHeader}
+        >
+          <LinearGradient
+            colors={weatherData?.backgroundGradient as [string, string] || ['#4A90E2', '#87CEEB'] as [string, string]}
+            style={styles.weatherGradient}
+          >
+            <View style={styles.weatherContent}>
+              <View style={styles.weatherMain}>
+                <Ionicons 
+                  name={(weatherData?.weatherIcon || 'partly-sunny') as any} 
+                  size={40} 
+                  color="#fff" 
+                />
+                <Text style={styles.temperature}>
+                  {weatherData?.currentTemperature}°C
+                </Text>
+              </View>
+              <Text style={styles.weatherDescription}>
+                {weatherData?.weatherDescription || 'Chargement...'}
+              </Text>
+              <Text style={styles.location}>
+                {weatherData?.locationName || 'Localisation...'}
+              </Text>
+            </View>
+          </LinearGradient>
+        </Animated.View>
+
+        {/* Sélecteur de cultures */}
         {userCrops.length > 1 && (
-          <View style={styles.culturePicker}>
+          <Animated.View 
+            entering={FadeInDown.delay(300)} 
+            style={styles.culturePicker}
+          >
             <Text style={styles.culturePickerLabel}>Sélectionnez une culture:</Text>
-            <View style={styles.culturePickerButtons}>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              style={styles.culturePickerScroll}
+            >
               {userCrops.map((crop, index) => (
                 <TouchableOpacity
                   key={crop.id}
@@ -581,72 +664,153 @@ export default function IrrigationScreen() {
                   ]}
                   onPress={() => setSelectedCultureIndex(index)}
                 >
+                  <MaterialCommunityIcons
+                    name={getCultureIcon(selectedCulture.name)}
+                    size={24}
+                    color={selectedCultureIndex === index ? Colors.white : Colors.primary}
+                  />
                   <Text 
                     style={[
                       styles.culturePickerButtonText,
                       selectedCultureIndex === index && styles.culturePickerButtonTextActive
                     ]}
                   >
-                    {crop.name}
+                    {selectedCulture.name}
                   </Text>
                 </TouchableOpacity>
               ))}
-            </View>
-          </View>
+            </ScrollView>
+          </Animated.View>
         )}
 
-        {weatherError && (
-          <AlertBanner
-            message="Impossible de récupérer les données météo actuelles. Les recommandations pourraient ne pas être précises."
-            type="warning"
-          />
-        )}
-
+        {/* Carte de recommandation */}
         {recommendation && (
-          <IrrigationCard
-            volume={recommendation.volume}
-            totalVolume={recommendation.total}
-            frequency={recommendation.frequence}
-            moment={recommendation.moment}
-            message={recommendation.message}
-            constraint={recommendation.contrainte}
-            culture={recommendation.culture}
-            sol={recommendation.sol}
-            weatherIcon={weatherData?.weatherIcon || 'sunny'}
-            onMarkComplete={handleMarkComplete}
-          />
+          <Animated.View entering={FadeInUp.delay(400)}>
+            <IrrigationCard
+              volume={recommendation.volume}
+              totalVolume={recommendation.total}
+              frequency={recommendation.frequence}
+              moment={recommendation.moment}
+              message={recommendation.message}
+              constraint={recommendation.contrainte}
+              culture={selectedCulture.name}
+              sol={selectedCulture.soilType}
+              weatherIcon={weatherData?.weatherIcon}
+              weatherData={{
+                temperature: weatherData?.currentTemperature,
+                humidity: weatherData?.currentHumidity,
+                isRaining: weatherData?.weatherDescription?.toLowerCase().includes('pluie') || 
+                          weatherData?.weatherDescription?.toLowerCase().includes('bruine'),
+                rainForecast: weatherData?.nextRainHours ? weatherData.nextRainHours.length > 0 : false,
+              }}
+              onMarkComplete={handleMarkComplete}
+            />
+          </Animated.View>
         )}
 
-        <View style={styles.cultureHeader}>
-          <Image source={selectedCulture.image} style={styles.cultureImage} />
-          <Text style={styles.cultureName}>{selectedCulture.name}</Text>
-        </View>
+        {/* Informations détaillées de la culture */}
+        <Animated.View 
+          entering={FadeInUp.delay(500)}
+          style={styles.cultureDetailsCard}
+        >
+          <LinearGradient
+            colors={['#ffffff', '#f8f9fa']}
+            style={styles.cultureDetailsGradient}
+          >
+            <View style={styles.cultureHeader}>
+              <MaterialCommunityIcons
+                name={getCultureIcon(selectedCulture.name)}
+                size={32}
+                color={Colors.primary}
+              />
+              <Text style={styles.cultureName}>{selectedCulture.name}</Text>
+            </View>
 
-        <View style={styles.infoContainer}>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Type de sol:</Text>
-            <Text style={styles.infoValue}>{selectedCulture.soilType}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Superficie:</Text>
-            <Text style={styles.infoValue}>{selectedCulture.area} m²</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Planté le:</Text>
-            <Text style={styles.infoValue}>{formatDate(selectedCulture.plantingDate)}</Text>
-          </View>
-        </View>
+            <View style={styles.infoContainer}>
+              <View style={styles.infoRow}>
+                <View style={styles.infoItem}>
+                  <MaterialCommunityIcons name="shovel" size={24} color={Colors.earth} />
+                  <Text style={styles.infoLabel}>Type de sol:</Text>
+                  <Text style={styles.infoValue}>{selectedCulture.soilType}</Text>
+                </View>
+              </View>
+
+              <View style={styles.infoRow}>
+                <View style={styles.infoItem}>
+                  <MaterialCommunityIcons name="ruler" size={24} color={Colors.primary} />
+                  <Text style={styles.infoLabel}>Superficie:</Text>
+                  <Text style={styles.infoValue}>{selectedCulture.area} m²</Text>
+                </View>
+              </View>
+
+              <View style={styles.infoRow}>
+                <View style={styles.infoItem}>
+                  <MaterialCommunityIcons name="calendar" size={24} color={Colors.success} />
+                  <Text style={styles.infoLabel}>Planté le:</Text>
+                  <Text style={styles.infoValue}>{formatDate(selectedCulture.plantingDate)}</Text>
+                </View>
+              </View>
+            </View>
+          </LinearGradient>
+        </Animated.View>
       </ScrollView>
     );
   };
 
-  const renderHistoriqueTab = () => (
+  const renderHistoriqueTab = () => {
+    if (historyLoading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingText}>Chargement de l'historique d'irrigation...</Text>
+        </View>
+      );
+    }
+    
+    if (historyError) {
+      return (
+        <View style={styles.errorContainer}>
+          <Ionicons name="alert-circle" size={40} color={Colors.white} />
+          <Text style={styles.errorText}>{historyError}</Text>
+          <TouchableOpacity 
+            style={styles.retryButton}
+            onPress={loadIrrigationHistory}
+          >
+            <Text style={styles.retryButtonText}>Réessayer</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    
+    if (irrigationHistory.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Ionicons name="water-outline" size={60} color={Colors.primary} />
+          <Text style={styles.emptyText}>
+            Vous n'avez pas encore d'historique d'irrigation.
+          </Text>
+          <Text style={styles.emptySubText}>
+            Commencez par marquer vos irrigations comme effectuées dans l'onglet "Besoins en eau".
+          </Text>
+        </View>
+      );
+    }
+    
+    // Déterminer le mois et l'année actuels pour l'affichage
+    const currentDate = new Date();
+    const monthNames = [
+      'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 
+      'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+    ];
+    const currentMonthDisplay = `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+    
+    return (
     <ScrollView style={styles.tabContent}>
       <View style={styles.calendarContainer}>
         <TouchableOpacity>
           <Ionicons name="chevron-back" size={24} color={Colors.primary} />
         </TouchableOpacity>
-        <Text style={styles.monthText}>Mai 2023</Text>
+          <Text style={styles.monthText}>{currentMonthDisplay}</Text>
         <TouchableOpacity>
           <Ionicons name="chevron-forward" size={24} color={Colors.primary} />
         </TouchableOpacity>
@@ -660,8 +824,8 @@ export default function IrrigationScreen() {
 
       <View style={styles.historyContainer}>
         <Text style={styles.historyTitle}>Historique d'irrigation</Text>
-        {irrigationHistory.map((item, index) => (
-          <View key={index} style={styles.historyItem}>
+          {irrigationHistory.map((item) => (
+            <View key={item.id} style={styles.historyItem}>
             <View style={styles.historyDate}>
               <Text style={styles.historyDateText}>{item.date}</Text>
             </View>
@@ -681,6 +845,7 @@ export default function IrrigationScreen() {
       </View>
     </ScrollView>
   );
+  };
 
   // Format date for display
   const formatDate = (dateString: string) => {
@@ -697,14 +862,17 @@ export default function IrrigationScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
+      <StatusBar style={Platform.OS === 'ios' ? 'light' : 'auto'} />
       
-      <View style={styles.screenHeader}>
+      <Animated.View 
+        entering={FadeInDown} 
+        style={styles.screenHeader}
+      >
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Ionicons name="chevron-back" size={24} color={Colors.white} />
+          <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
         <Text style={styles.screenTitle}>Irrigation</Text>
         <TouchableOpacity 
@@ -713,7 +881,7 @@ export default function IrrigationScreen() {
         >
           <Ionicons name="settings-outline" size={24} color={Colors.white} />
         </TouchableOpacity>
-      </View>
+      </Animated.View>
       
       {/* En-tête de localisation */}
       {renderLocationHeader()}
@@ -784,7 +952,7 @@ export default function IrrigationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.lightGray,
+    backgroundColor: '#f5f5f5',
   },
   screenHeader: {
     backgroundColor: Colors.primary,
@@ -802,7 +970,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   screenTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: 'Montserrat-Bold',
     color: Colors.white,
   },
@@ -896,10 +1064,11 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   loadingText: {
-    marginTop: 10,
+    marginTop: 16,
     fontSize: 16,
     fontFamily: 'OpenSans-Regular',
     color: Colors.darkGray,
+    textAlign: 'center',
   },
   loadingSubtext: {
     marginTop: 8,
@@ -907,15 +1076,19 @@ const styles = StyleSheet.create({
     fontFamily: 'OpenSans-Regular',
     color: Colors.darkGray,
     textAlign: 'center',
+    opacity: 0.8,
   },
   errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    margin: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  errorGradient: {
+    padding: 24,
     alignItems: 'center',
-    padding: 20,
   },
   errorText: {
-    marginTop: 10,
+    marginTop: 12,
     fontSize: 18,
     fontFamily: 'Montserrat-Bold',
     color: Colors.darkGray,
@@ -927,152 +1100,149 @@ const styles = StyleSheet.create({
     fontFamily: 'OpenSans-Regular',
     color: Colors.darkGray,
     textAlign: 'center',
+    opacity: 0.8,
   },
   refreshButton: {
-    backgroundColor: Colors.primary,
-    margin: 20,
-    padding: 15,
-    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 25,
+    marginTop: 20,
   },
   refreshButtonText: {
-    color: Colors.white,
+    marginLeft: 8,
     fontSize: 16,
+    fontFamily: 'OpenSans-SemiBold',
+    color: Colors.white,
+  },
+  weatherHeader: {
+    margin: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  weatherGradient: {
+    padding: 20,
+  },
+  weatherContent: {
+    alignItems: 'center',
+  },
+  weatherMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  temperature: {
+    fontSize: 32,
     fontFamily: 'Montserrat-Bold',
+    color: Colors.white,
+    marginLeft: 12,
+  },
+  weatherDescription: {
+    fontSize: 16,
+    fontFamily: 'OpenSans-SemiBold',
+    color: Colors.white,
+    marginBottom: 4,
+  },
+  location: {
+    fontSize: 14,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.white,
+    opacity: 0.9,
   },
   culturePicker: {
+    marginHorizontal: 16,
     marginBottom: 16,
-    backgroundColor: Colors.white,
-    borderRadius: 8,
-    padding: 16,
   },
   culturePickerLabel: {
     fontSize: 16,
-    fontFamily: 'OpenSans-Regular',
+    fontFamily: 'OpenSans-SemiBold',
     color: Colors.darkGray,
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  culturePickerButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  culturePickerScroll: {
+    flexGrow: 0,
   },
   culturePickerButton: {
-    backgroundColor: Colors.lightGray,
-    borderRadius: 8,
-    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
     paddingHorizontal: 16,
-    marginRight: 8,
-    marginBottom: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginRight: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   culturePickerButtonActive: {
     backgroundColor: Colors.primary,
   },
   culturePickerButtonText: {
-    fontSize: 14,
-    fontFamily: 'OpenSans-Regular',
+    fontSize: 16,
+    fontFamily: 'OpenSans-SemiBold',
     color: Colors.darkGray,
+    marginLeft: 8,
   },
   culturePickerButtonTextActive: {
     color: Colors.white,
   },
-  weatherContainer: {
-    backgroundColor: Colors.white,
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
+  cultureDetailsCard: {
+    margin: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  weatherHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  weatherLocation: {
-    marginLeft: 4,
-    fontSize: 14,
-    fontFamily: 'OpenSans-Regular',
-    color: Colors.darkGray,
-  },
-  weatherDetails: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  weatherTemp: {
-    marginLeft: 10,
-    fontSize: 18,
-    fontFamily: 'Montserrat-Bold',
-    color: Colors.darkGray,
-  },
-  weatherDesc: {
-    marginLeft: 10,
-    fontSize: 14,
-    fontFamily: 'OpenSans-Regular',
-    color: Colors.darkGray,
+  cultureDetailsGradient: {
+    padding: 20,
   },
   cultureHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.white,
-    borderRadius: 8,
-    padding: 16,
-    marginTop: 16,
-  },
-  cultureImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
+    marginBottom: 16,
   },
   cultureName: {
-    marginLeft: 16,
-    fontSize: 18,
+    fontSize: 24,
     fontFamily: 'Montserrat-Bold',
-    color: Colors.darkGray,
+    color: Colors.primary,
+    marginLeft: 12,
   },
   infoContainer: {
     backgroundColor: Colors.white,
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 16,
-    marginTop: 8,
-    marginBottom: 24,
   },
   infoRow: {
+    marginBottom: 16,
+  },
+  infoItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.lightGray,
+    alignItems: 'center',
   },
   infoLabel: {
     fontSize: 14,
-    fontFamily: 'OpenSans-Regular',
+    fontFamily: 'OpenSans-SemiBold',
     color: Colors.darkGray,
+    marginLeft: 8,
+    marginRight: 8,
   },
   infoValue: {
     fontSize: 14,
-    fontFamily: 'OpenSans-SemiBold',
-    color: Colors.darkGray,
-  },
-  highlightedInfo: {
-    backgroundColor: '#E8F5E9',
-    padding: 10,
-    borderRadius: 8,
-    marginTop: 5,
-    borderBottomWidth: 0,
-  },
-  highlightedText: {
-    color: Colors.primary,
-  },
-  irrigationButton: {
-    backgroundColor: Colors.primary,
-    margin: 20,
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  irrigationButtonText: {
-    color: Colors.white,
-    fontSize: 16,
-    fontFamily: 'Montserrat-Bold',
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.text,
+    flex: 1,
   },
   calendarContainer: {
     flexDirection: 'row',
@@ -1167,14 +1337,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
+    paddingVertical: 12,
     backgroundColor: Colors.white,
-    paddingVertical: 10,
     borderTopWidth: 1,
     borderTopColor: Colors.lightGray,
   },
   navItem: {
     alignItems: 'center',
-    justifyContent: 'center',
   },
   navText: {
     fontSize: 12,
@@ -1184,5 +1353,38 @@ const styles = StyleSheet.create({
   },
   activeNavText: {
     color: Colors.primary,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
+    backgroundColor: Colors.white,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontFamily: 'Montserrat-Bold',
+    color: Colors.primary,
+    marginTop: 20,
+    textAlign: 'center',
+  },
+  emptySubText: {
+    fontSize: 14,
+    fontFamily: 'OpenSans-Regular',
+    color: Colors.darkGray,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: Colors.primary,
+    margin: 20,
+    padding: 15,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  retryButtonText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontFamily: 'Montserrat-Bold',
   },
 }); 

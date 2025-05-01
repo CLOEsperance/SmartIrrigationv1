@@ -33,13 +33,17 @@ const DEFAULT_COORDS = {
   longitude: 2.42,
 };
 
-// Interface pour les cultures utilisateur
+// Interface mise à jour pour ajouter les propriétés dynamiques
 interface UserCrop {
   id: string;
   name: string;
   soilType: string;
   area: string;
   plantingDate: string;
+  // Propriétés calculées (optionnelles)
+  irrigationStatus?: string;
+  waterNeeded?: string;
+  nextWateringTime?: string;
 }
 
 // Images des cultures
@@ -62,6 +66,7 @@ export default function HomeScreen() {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [showWeatherDetails, setShowWeatherDetails] = useState(false);
+  const [weatherAlerts, setWeatherAlerts] = useState<string[]>([]);
 
   // Fonction pour demander la permission de géolocalisation et obtenir la position
   const getLocation = async () => {
@@ -103,12 +108,49 @@ export default function HomeScreen() {
       );
       
       setWeatherData(data);
+      
+      // Générer des alertes météo basées sur les données réelles
+      generateWeatherAlerts(data);
     } catch (error) {
       setWeatherError('Erreur lors de la récupération des données météo');
       console.error(error);
     } finally {
       setWeatherLoading(false);
     }
+  };
+
+  // Générer des alertes météo basées sur les données réelles
+  const generateWeatherAlerts = (data: FormattedWeatherData) => {
+    const alerts = [];
+
+    // Alerte de température élevée
+    const maxTemp = data.dailyForecast.maxTemperatures[1]; // Demain
+    if (maxTemp > 32) {
+      alerts.push(`Température élevée demain (${Math.round(maxTemp)}°C), arrosez en fin de journée`);
+    }
+
+    // Alerte de pluie
+    if (data.nextRainHours.length > 0) {
+      alerts.push(`Pluie prévue à ${data.nextRainHours.join(', ')}, ajustez votre plan d'irrigation`);
+    }
+
+    // Alerte de vent fort
+    if (data.windSpeed > 30) {
+      alerts.push(`Vent fort (${Math.round(data.windSpeed)} km/h), protégez vos cultures fragiles`);
+    }
+
+    // Alerte de probabilité de précipitation
+    const precipProb = data.dailyForecast.precipitationProbability[0]; // Aujourd'hui
+    if (precipProb > 70) {
+      alerts.push(`Forte probabilité de précipitation aujourd'hui (${precipProb}%), reportez l'irrigation`);
+    }
+
+    // S'il n'y a pas d'alertes spécifiques
+    if (alerts.length === 0) {
+      alerts.push("Conditions normales aujourd'hui, suivez le plan d'irrigation recommandé");
+    }
+
+    setWeatherAlerts(alerts);
   };
 
   // Fonction pour charger les cultures de l'utilisateur depuis Firestore
@@ -126,7 +168,14 @@ export default function HomeScreen() {
       const userData = await userService.getUserData(user.uid);
       
       if (userData && userData.crops && userData.crops.length > 0) {
-        setUserCrops(userData.crops);
+        // Ajout des informations d'irrigation calculées en temps réel
+        const enhancedCrops = userData.crops.map(crop => ({
+          ...crop,
+          irrigationStatus: getIrrigationStatus(crop.id),
+          waterNeeded: getWaterNeeded(crop.id, crop.area),
+          nextWateringTime: getNextWateringTime(crop.id)
+        }));
+        setUserCrops(enhancedCrops);
       } else {
         // Aucune culture trouvée
         setUserCrops([]);
@@ -181,10 +230,64 @@ export default function HomeScreen() {
     return times[Math.floor(Math.random() * times.length)];
   };
 
-  const handleIrrigationDone = (id: string) => {
-    // Logique pour marquer l'irrigation comme effectuée
-    console.log('Irrigation effectuée pour la culture:', id);
-    Alert.alert('Irrigation enregistrée', 'Votre action d\'irrigation a été enregistrée avec succès.');
+  const handleIrrigationDone = async (id: string) => {
+    console.log("Début de handleIrrigationDone pour la culture ID:", id);
+    
+    // Vérifier si l'utilisateur est connecté
+    if (!currentUser) {
+      console.error("Erreur: utilisateur non connecté");
+      Alert.alert('Erreur', 'Vous devez être connecté pour effectuer cette action');
+      return;
+    }
+    console.log("Utilisateur connecté:", currentUser.uid);
+
+    // Rechercher la culture correspondante
+    const crop = userCrops.find(c => c.id === id);
+    if (!crop) {
+      console.error("Erreur: culture introuvable avec l'ID", id);
+      Alert.alert('Erreur', 'Culture introuvable');
+      return;
+    }
+    console.log("Culture trouvée:", crop.name);
+    
+    try {
+      // Calculer le volume d'eau basé sur la fonction getWaterNeeded
+      const waterNeededText = getWaterNeeded(crop.id, crop.area);
+      console.log("Volume d'eau nécessaire:", waterNeededText);
+      
+      // Extraire le nombre du format "XL/m²"
+      const volumePerM2 = parseFloat(waterNeededText.replace('L/m²', ''));
+      const area = parseFloat(crop.area);
+      const totalVolume = volumePerM2 * area;
+      
+      console.log(`Calculs: ${volumePerM2} L/m² × ${area} m² = ${totalVolume} L au total`);
+      
+      // Préparer les données d'irrigation
+      const irrigationData = {
+        date: new Date(),
+        culture: crop.name,
+        volume: volumePerM2,
+        totalVolume: totalVolume,
+        completed: true
+      };
+      console.log("Données d'irrigation à enregistrer:", irrigationData);
+      
+      // Ajouter l'irrigation à l'historique
+      const recordId = await userService.addIrrigationHistory(currentUser.uid, irrigationData);
+      console.log("Irrigation enregistrée avec succès, ID:", recordId);
+      
+      // Afficher un message de succès
+      Alert.alert(
+        'Irrigation enregistrée', 
+        'Votre action d\'irrigation a été enregistrée avec succès et ajoutée à votre historique.'
+      );
+    } catch (error) {
+      console.error('Erreur détaillée lors de l\'enregistrement de l\'irrigation:', error);
+      Alert.alert(
+        'Erreur', 
+        'Impossible d\'enregistrer cette irrigation. Veuillez réessayer.'
+      );
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -231,19 +334,24 @@ export default function HomeScreen() {
 
     if (!weatherData) return null;
 
-    // Ensure we always have at least two colors for the gradient
-    const gradientColors = Array.isArray(weatherData.backgroundGradient) && weatherData.backgroundGradient.length >= 2
-      ? weatherData.backgroundGradient
-      : ['#4880EC', '#019CAD'];
+    // Définir le dégradé en fonction du jour/nuit
+    const dayGradient: [string, string] = ['#4A90E2', '#87CEEB']; // Dégradé bleu ciel pour la journée
+    const nightGradient: [string, string] = ['#1a1b4b', '#090a2a']; // Dégradé nuit
+    
+    // Déterminer si c'est le jour ou la nuit
+    const isNight = weatherData.isNight;
+    
+    // Choisir le dégradé approprié
+    const gradientColors = isNight ? nightGradient : dayGradient;
 
     return (
       <View style={styles.weatherSection}>
         <Text style={styles.weatherSectionTitle}>Météo du jour</Text>
         <LinearGradient
-          colors={gradientColors as [string, string, ...string[]]}
+          colors={gradientColors}
           style={styles.weatherGradient}
         >
-          {weatherData.isNight && (
+          {isNight && (
             <Image
               source={require('../../assets/images/stars.png.png')}
               style={styles.starsOverlay}
@@ -328,7 +436,6 @@ export default function HomeScreen() {
             <Ionicons name="chevron-forward" size={20} color={Colors.white} />
           </TouchableOpacity>
         </LinearGradient>
-        {/* Disclaimer Text */}
         <Text style={styles.weatherDisclaimer}>
           Les données météo sont basées sur la position de vos cultures. Des écarts peuvent exister selon les conditions locales.
         </Text>
@@ -369,20 +476,22 @@ export default function HomeScreen() {
             </Text>
           </View>
 
-          {/* Alerte Météo */}
+          {/* Alerte Météo - Maintenant basée sur des données réelles */}
+          {weatherAlerts.length > 0 && (
           <View style={styles.alertContainer}>
             <View style={styles.alertContent}>
               <Ionicons name="warning" size={24} color="#FFA000" />
               <Text style={styles.alertText}>
-                Température élevée demain, arrosez en fin de journée
+                  {weatherAlerts[0]} {/* Afficher la première alerte */}
               </Text>
             </View>
           </View>
+          )}
 
           {/* Section Météo */}
           {renderWeatherSection()}
 
-          {/* Liste des cultures */}
+          {/* Liste des cultures - design conservé, données mises à jour */}
           <View style={styles.culturesContainer}>
             <Text style={styles.sectionTitle}>Vos Cultures</Text>
             
@@ -416,12 +525,8 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               </View>
             ) : (
-              userCrops.map((crop) => {
-                const status = getIrrigationStatus(crop.id);
-                const waterNeeded = getWaterNeeded(crop.id, crop.area);
-                const nextWatering = getNextWateringTime(crop.id);
-                
-                return (
+              // La conception reste la même, mais utilise les données réelles récupérées de Firebase
+              userCrops.map((crop) => (
                   <View key={crop.id} style={styles.cultureCard}>
                     <Image source={getCropImage(crop.id)} style={styles.cultureImage} />
                     <View style={styles.cultureInfo}>
@@ -429,11 +534,11 @@ export default function HomeScreen() {
                       <View style={styles.cultureDetails}>
                         <View style={styles.detailItem}>
                           <Ionicons name="water" size={16} color={Colors.primary} />
-                          <Text style={styles.detailText}>{waterNeeded}</Text>
+                        <Text style={styles.detailText}>{crop.waterNeeded || getWaterNeeded(crop.id, crop.area)}</Text>
                         </View>
                         <View style={styles.detailItem}>
                           <Ionicons name="time" size={16} color={Colors.primary} />
-                          <Text style={styles.detailText}>{nextWatering}</Text>
+                        <Text style={styles.detailText}>{crop.nextWateringTime || getNextWateringTime(crop.id)}</Text>
                         </View>
                         <View style={styles.detailItem}>
                           <Ionicons name="leaf" size={16} color={Colors.primary} />
@@ -448,9 +553,10 @@ export default function HomeScreen() {
                           </Text>
                         </View>
                         <View style={[styles.statusBadge, 
-                          status === 'Humidité optimale' ? styles.statusOptimal : styles.statusNeedsWater
+                        (crop.irrigationStatus || getIrrigationStatus(crop.id)) === 'Humidité optimale' 
+                          ? styles.statusOptimal : styles.statusNeedsWater
                         ]}>
-                          <Text style={styles.statusText}>{status}</Text>
+                        <Text style={styles.statusText}>{crop.irrigationStatus || getIrrigationStatus(crop.id)}</Text>
                         </View>
                       </View>
                       <TouchableOpacity
@@ -461,8 +567,7 @@ export default function HomeScreen() {
                       </TouchableOpacity>
                     </View>
                   </View>
-                );
-              })
+              ))
             )}
           </View>
         </ScrollView>

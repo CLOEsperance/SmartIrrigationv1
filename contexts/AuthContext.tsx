@@ -3,6 +3,8 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
 import authService from '../services/auth.service';
 import { router, useSegments } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { updateProfile as firebaseUpdateProfile } from 'firebase/auth';
 
 // Type pour le contexte d'authentification
 interface AuthContextType {
@@ -10,6 +12,7 @@ interface AuthContextType {
   isLoading: boolean;
   logout: () => Promise<void>;
   authStateChecked: boolean;
+  updateProfile: (data: { displayName?: string; photoURL?: string }) => Promise<void>;
 }
 
 // Valeur par défaut du contexte
@@ -18,6 +21,7 @@ const defaultAuthContext: AuthContextType = {
   isLoading: true,
   logout: async () => {},
   authStateChecked: false,
+  updateProfile: async () => {},
 };
 
 // Création du contexte
@@ -114,9 +118,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Fonction de déconnexion
   const logout = async () => {
-    await authService.logout();
-    // Redirection vers la page de connexion après déconnexion
-    router.replace('/(public)/login');
+    try {
+      await auth.signOut();
+      await AsyncStorage.removeItem('user');
+      setCurrentUser(null);
+    } catch (error) {
+      console.error('Erreur lors de la déconnexion:', error);
+    }
+  };
+
+  const updateProfile = async (data: { displayName?: string; photoURL?: string }) => {
+    try {
+      if (!currentUser) {
+        throw new Error('Aucun utilisateur connecté');
+      }
+      await firebaseUpdateProfile(currentUser, data);
+      setCurrentUser({ ...currentUser, ...data });
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour du profil:', error);
+      throw error;
+    }
   };
 
   const value = {
@@ -124,6 +145,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isLoading,
     logout,
     authStateChecked,
+    updateProfile,
   };
 
   return (
